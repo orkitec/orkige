@@ -4263,8 +4263,25 @@ namespace Orkige
 			// the (1-cos)^5 lobe integrates to 1/21). The mirrored scene, not
 			// the body glow, carries the surface; the fresnel gate still keeps
 			// the look water, not chrome.
-			const float effectiveF0 =
-				mirrorF0 * std::clamp(desc.opacity, 0.0f, 1.0f);
+			// the refracted share is dimmed toward classic's compose:
+			// classic's paint carries its scene share pre-dimmed AND renders
+			// the underwater scene darker, while the Refractive mode
+			// composes the captured scene at the full (1 - opacity) - at the
+			// benchmark's bright sandy bed that share alone outshines the
+			// whole paint. The factor is CALIBRATED, not derived: it covers
+			// classic's own dim and the brighter captured content in one
+			// measured number (the mirror scene's deep water band, classic
+			// 48 against 95 undimmed, 57 at this value - the residual is the
+			// sky-dome hue seam, not brightness). HlmsPbs premultiplies its
+			// fresnel by this alpha, so the effective F0 below reads the
+			// SAME value and the mirror math stays coherent
+			const float kRefractedShareDim = 0.30f;
+			const float alphaEff = 1.0f -
+				(1.0f - std::clamp(desc.opacity, 0.0f, 1.0f)) * kRefractedShareDim;
+			datablock->setTransparency(alphaEff, useRefraction
+				? Ogre::HlmsPbsDatablock::Refractive
+				: Ogre::HlmsPbsDatablock::Transparent);
+			const float effectiveF0 = mirrorF0 * alphaEff;
 			const float meanFresnel =
 				effectiveF0 + (1.0f - effectiveF0) / 21.0f;
 			const float classicBodyWeight =
@@ -4339,7 +4356,10 @@ namespace Orkige
 			// belongs to the sun glint's GGX lobe, and the mirror keeps its
 			// own near-mip-0 look independently of it
 			const float mirrorLod = 0.05f;
-			char mirrorSource[2560];
+			// the mirror's own Schlick floor (@see the piece below): the
+			// steep-view weight of the reflection against the body
+			const float mirrorAngleF0 = 0.12f;
+			char mirrorSource[4096];
 			std::snprintf(mirrorSource, sizeof(mirrorSource),
 				"@property( use_planar_reflections )\n"
 				// free the piece slot the library already claimed - a plain
@@ -4373,6 +4393,15 @@ namespace Orkige
 				"\tfloat3 planarReflectionS = OGRE_SampleLevel( planarReflectionTex,\n"
 				"\t\tplanarReflectionSampler, planarReflUVs.xy,\n"
 				"\t\t%.5ff * passBuf.planarReflNumMips ).xyz;\n"
+				// ORKIGE: weight the mirror by its own view-angle fresnel, the
+				// classic program's mix character - looking straight down the
+				// reflection nearly vanishes into the body colour, at grazing
+				// it carries the surface. Downstream HlmsPbs still applies the
+				// calibrated mirror specular; this factor restores the ANGLE
+				// SHAPE that a linear-light addition otherwise flattens
+				"\tfloat mirrorFresnel = %.5ff\n"
+				"\t\t+ ( 1.0f - %.5ff ) * pow( 1.0f - pixelData.NdotV, 5.0f );\n"
+				"\tplanarReflectionS *= mirrorFresnel;\n"
 				"\tfloat planarWeight = max( 1.0 - abs( distanceToPlanarReflPlane )\n"
 				"\t\t* passBuf.invMaxDistanceToPlanarRefl.x, 0.0 );\n"
 				"\tplanarWeight = sqrt( planarWeight );\n"
@@ -4400,7 +4429,7 @@ namespace Orkige
 				"\t@end\n"
 				"@end\n"
 				"@end\n",
-				distort, mirrorLod);
+				distort, mirrorLod, mirrorAngleF0, mirrorAngleF0);
 			// the mirrored surface's ambient stage, with the SPECULAR sky
 			// fill suppressed: upstream's DoAmbientLighting adds the
 			// hemisphere ambient onto envColourS AFTER the planar piece put
@@ -4452,7 +4481,8 @@ namespace Orkige
 				"@end\n";
 			char mirrorTag[64];
 			std::snprintf(mirrorTag, sizeof(mirrorTag),
-				"_mirror_%.5f_%.5f_ambfill0_piece_ps.any", distort, mirrorLod);
+				"_mirror_%.5f_%.5f_%.5f_ambfill0_piece_ps.any", distort, mirrorLod,
+				mirrorAngleF0);
 			datablock->setCustomPieceCodeFromMemory(name + mirrorTag,
 				String(mirrorSource) + AMBIENT_NO_SKY_FILL,
 				Ogre::CustomPieceStage::PixelShader);
