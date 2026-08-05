@@ -3935,7 +3935,12 @@ endforeach()
 # editor's own 540s in-test boot deadline (this is the LAST property write
 # for these tests and therefore the authoritative timeout)
 if(TEST editor_play_simulator)
-    set_tests_properties(editor_play_simulator PROPERTIES TIMEOUT 600)
+    # measured on hosted runners: 512s green on a normal one, then past 600s
+    # twice on a runner whose passing boot sibling ran 1.6x its own green
+    # pace (766s -> 1206s) - runner variance exceeds a 600s cap's headroom.
+    # The cap covers the worst measured pace; the editor's inner phase
+    # budgets (EditorApp.h) still fail honestly first on a true hang
+    set_tests_properties(editor_play_simulator PROPERTIES TIMEOUT 1200)
 endif()
 # the rotation runs add two device rotations + their stats round-trips on top
 # of the play flow; the iOS one may additionally have to boot a simulator
