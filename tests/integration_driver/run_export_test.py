@@ -455,11 +455,19 @@ def check_linux_dynamic_deps(executable):
         if not target or not target.startswith("/"):
             continue
         resolved.append(target)
+    # ONE sanctioned exception: the Vulkan LOADER. It is system-tier on
+    # Linux the way MoltenVK is on macOS - the machine's driver stack owns
+    # it, a Vulkan game expects the distribution's libvulkan.so.1 - and the
+    # build binary's rpath makes ldd resolve the soname into the build
+    # tree's copy ON THIS machine, while a user's machine loads its own.
+    # Everything else must be the machine's.
     strays = [path for path in resolved
-              if "vcpkg_installed" in path or "/build/" in path]
+              if ("vcpkg_installed" in path or "/build/" in path)
+              and not re.search(r"libvulkan\.so(\.|$)", path)]
     require(not strays,
             "no dependency resolves into a build tree or vcpkg (%s)" % strays)
-    log("dynamic dependencies: %d, all system libraries" % len(resolved))
+    log("dynamic dependencies: %d resolved (system libraries plus the "
+        "system-tier Vulkan loader)" % len(resolved))
 
 
 def check_linux(app_dir, exe_name, run_frames, flavor):

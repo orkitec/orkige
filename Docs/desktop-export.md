@@ -81,7 +81,12 @@ What stays dynamic is the machine's own: the C and C++ runtimes, and the
 display, driver and audio libraries SDL and the render backends resolve through
 the platform (X11 or Wayland, the GL or Vulkan driver, ALSA or PulseAudio). Those
 belong to the system the game runs on and are never something an application
-brings with it.
+brings with it. The **Vulkan loader** (`libvulkan.so.1`) is one of them: it is
+system-tier on Linux the way the Vulkan driver itself is - the distribution's
+`libvulkan1` package provides it, every Vulkan game expects it, and the export
+neither bundles nor rewrites it. The default flavor's package therefore needs a
+machine with Vulkan installed; the classic flavor's needs GL, the way the
+desktop has always worked.
 
 The consequence worth knowing before shipping: **the glibc and libstdc++ of the
 machine that built the game are its floor.** A package built on a recent
