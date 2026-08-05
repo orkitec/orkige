@@ -654,6 +654,28 @@ jobs:
             --classic-shots parity/classic/render_facade \
             --next-shots parity/next/render_facade
 
+      # The same comparison over the forty-odd OTHER frames the selfcheck
+      # writes - shadows, lighting, sky, atmosphere, fog, IBL, decals, bloom,
+      # the graded look, the 2D layers - so a flavor drift in any feature is
+      # measured rather than invisible. No capture step: both flavor jobs
+      # already uploaded their whole render_facade directory for the pixel
+      # gate above, and this reads the same two trees.
+      #
+      # --report-only DELIBERATELY: the per-shot corridors were measured on
+      # the developer pair, and this pair is a different software rasterizer
+      # on each side. The numbers land in the job log (and the divergent
+      # pairs in the uploaded artifact) where a corridor for THIS pair can be
+      # measured from them; a corridor carried over unmeasured would block
+      # merges rather than catch bugs. A missing or empty capture still
+      # FAILS here - report-only silences a verdict, never silence itself.
+      - name: The feature screenshots, measured across flavors (report-only)
+        run: |
+          python3 tests/integration_driver/compare_backend_screenshots.py \
+            --feature-sweep --report-only \
+            --classic-shots parity/classic/render_facade \
+            --next-shots parity/next/render_facade \
+            --adjudication-dir parity/feature-adjudication
+
       - name: The lake vignette looks the same on both flavors
         run: |
           python3 tests/integration_driver/run_crossflavor_parity_test.py \

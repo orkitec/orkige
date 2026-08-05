@@ -15,11 +15,30 @@ Two backends (**flavors**) implement it:
 Both flavors render the **same image** (WYSIWYG), gated by the
 `render_backend_parity` pixel test.
 
+The facade selfcheck writes a frame for every look feature it exercises, and
+the pixel gate scores four of them. The rest — shadows and each knob that
+suppresses part of the pass, lighting, sky, atmosphere, fog, image-based
+lighting, decals, bloom, the graded look, the 2D layers — are scored by the
+**feature sweep**, the same driver run with `--feature-sweep`
+(`render_feature_parity`, and a `--report-only` step in the `render-parity` CI
+job). Per-shot corridors live in the driver's `FEATURE_SHOTS` table with the
+measurement each was derived from beside it, and each shot is scored three
+ways: the whole-frame mean, the outlier fraction, and the per-region mean over
+the four quadrants plus a centre box — a region mean sees a whole area shifting
+that a frame mean averages away, and is blind to the scattered lone outlier
+pixels the window shots carry, which is why no gate here reads a single-pixel
+maximum. A shot gates only where the pair measures clean; where it measures a
+real divergence the corridor records today's state and the entry stays
+report-only, because a corridor wide enough to pass a known divergence catches
+nothing. **Two flat frames agree perfectly and prove nothing**, so a gated
+shot that went single-coloured on both flavors fails rather than passes; the
+frames that are flat by design say so and stay report-only.
+
 A comparison needs both flavors, and a build tree carries one, so each parity
 driver has two roads to the same verdict:
 
 - **Both binaries in one run** — a machine holding both trees. This is the
-  ctest (`render_backend_parity`, `grade_look_parity`,
+  ctest (`render_backend_parity`, `render_feature_parity`, `grade_look_parity`,
   `benchmark_crossflavor_parity{,_mirror}`), registered on the next preset and
   skipping honestly (exit 77) when the sibling tree is unbuilt.
 - **Captures compared later** (`--classic-shots`/`--next-shots`,

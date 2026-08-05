@@ -57,8 +57,12 @@ Rules and hazards:
   build dir or use the matching preset.
 - **Both flavors must render the SAME image** (WYSIWYG). Games, gui and the
   editor (ImGui on `DrawLayer2D`) all run on both; the `render_backend_parity`
-  pixel test enforces it, with `grade_look_parity` and the two
-  `benchmark_crossflavor_parity` gates beside it. A comparison needs BOTH
+  pixel test enforces it, with `render_feature_parity` (the same driver's
+  `--feature-sweep` over every OTHER frame the selfcheck writes — shadows,
+  lighting, sky, atmosphere, fog, IBL, decals, bloom, the graded look, the 2D
+  layers — per-shot corridors in `FEATURE_SHOTS`, report-only where the pair
+  measures a divergence that has not been adjudicated), `grade_look_parity` and
+  the two `benchmark_crossflavor_parity` gates beside it. A comparison needs BOTH
   flavors and a build tree carries one, so each driver has two roads to the
   same verdict: run both binaries (the ctest, registered on the next preset,
   reading the classic binary out of `build/<host>-debug-classic` and skipping
@@ -1409,7 +1413,7 @@ runs for branches that must be rebased anyway. The sixteen verdicts, plus the
 | Job | What it gates |
 |-----|---------------|
 | `linux-classic` / `linux-next` | the full windowed desktop suites under xvfb (llvmpipe / lavapipe); `linux-next` adds the `ORKIGE_SCRIPTING=OFF` build + unit gate |
-| `render-parity` (needs both Linux jobs) | the WYSIWYG gate: downloads the two flavor jobs' screenshots and compares them — facade pixels, window density, the output grade's induced deltas, and the lake + planar-mirror benchmark vignettes. No build, no GPU |
+| `render-parity` (needs both Linux jobs) | the WYSIWYG gate: downloads the two flavor jobs' screenshots and compares them — facade pixels, window density, the output grade's induced deltas, the lake + planar-mirror benchmark vignettes, and the report-only feature sweep over every other selfcheck frame. No build, no GPU |
 | `linux-sanitizer` | CI-only ASan + UBSan tree, complete unit + desktop suite |
 | `linux-tsan` | ThreadSanitizer tree, headless unit gate only (windowed sets are too noisy under TSan) |
 | `host-exporter` | builds `orkige_export` on Linux and uploads it — the browser export needs a host exporter the wasm tree cannot build |
