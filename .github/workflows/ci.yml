@@ -124,7 +124,7 @@ jobs:
   # created, nothing is merged, so main can carry no state that was not tested.
   # Branch protection is NOT bypassed - admins are bound by it, and this push
   # is accepted for the same reason a manual one would be, because the commit
-  # already holds the fifteen required verdicts.
+  # already holds the sixteen required verdicts.
   #
   # CONSEQUENCE WORTH KNOWING: moving main deploys the public site, since the
   # site job triggers on a main push. Green therefore means published.
@@ -140,6 +140,7 @@ jobs:
       - linux-tsan
       - host-exporter
       - web
+      - web-parity
       - android-emulator-next
       - android-emulator-classic
       - macos-next
@@ -350,7 +351,6 @@ jobs:
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
           GALLIUM_DRIVER: llvmpipe
-          ALSOFT_DRIVERS: "null"
           SDL_VIDEO_DRIVER: x11
         run: |
           set -euo pipefail
@@ -361,6 +361,30 @@ jobs:
                 --repo "$PWD" --capture classic --player-classic "$player" \
                 --scene "scenes/$scene.oscene" \
                 --dir "$PWD/parity-shots/$scene"
+          done
+
+      # The DESKTOP half of the browser parity gate, on the same player and in
+      # the same job - the browser runs the classic flavor, so its counterpart
+      # is this one. It is a SECOND capture rather than a reuse of the frames
+      # above because the recipe differs by one pinned cvar: shadows OFF. The
+      # classic backend refuses the shadow pass on a software WebGL rasterizer
+      # (Docs/web-export.md), so a browser frame's shadow state depends on
+      # whether the machine has a GPU; pinning the desktop side to match makes
+      # the compared image a property of the code on every machine.
+      - name: Capture the browser-parity desktop reference (xvfb + llvmpipe)
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          GALLIUM_DRIVER: llvmpipe
+          SDL_VIDEO_DRIVER: x11
+        run: |
+          set -euo pipefail
+          player="$PWD/build/linux-debug-classic/tools/player/orkige_player"
+          for scene in lake mirrorlake; do
+            xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" \
+              python3 tests/integration_driver/run_web_parity_test.py \
+                --repo "$PWD" --capture desktop --player-desktop "$player" \
+                --scene "scenes/$scene.oscene" \
+                --dir "$PWD/parity-shots/web-$scene"
           done
 
       - name: Stage the parity captures for comparison
@@ -492,7 +516,6 @@ jobs:
       # job downloads both and compares.
       - name: Capture the cross-flavor parity vignettes (xvfb + Mesa lavapipe)
         env:
-          ALSOFT_DRIVERS: "null"
           SDL_VIDEO_DRIVER: x11
         run: |
           set -euo pipefail
@@ -505,6 +528,31 @@ jobs:
                 --repo "$PWD" --capture next --player-next "$player" \
                 --scene "scenes/$scene.oscene" \
                 --dir "$PWD/parity-shots/$scene"
+          done
+
+      # The NEXT side of the next-vs-browser pair. That pair is what a RELEASE
+      # is judged on - the browser ships and the desktop classic flavor does
+      # not - so it is measured and PICTURED on every commit by the web-parity
+      # job, though not gated there (its deltas are the flavor seam's, which
+      # `render-parity` already gates band by band). It is a second capture
+      # because the browser recipe pins one cvar the vignette captures above
+      # leave at its default: shadows OFF, which is the only state a GPU-less
+      # browser can render (Docs/web-export.md). Comparing against a frame WITH
+      # shadows would put a difference in the picture that no flavor caused.
+      - name: Capture the browser-parity next reference (xvfb + Mesa lavapipe)
+        env:
+          SDL_VIDEO_DRIVER: x11
+        run: |
+          set -euo pipefail
+          LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1)
+          export VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD"
+          player="$PWD/build/linux-debug-next/tools/player/orkige_player"
+          for scene in lake mirrorlake; do
+            xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" \
+              python3 tests/integration_driver/run_web_parity_test.py \
+                --repo "$PWD" --capture desktop --player-desktop "$player" \
+                --scene "scenes/$scene.oscene" \
+                --dir "$PWD/parity-shots/web-$scene"
           done
 
       - name: Stage the parity captures for comparison
@@ -630,6 +678,105 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: render-parity-captures
+          path: parity
+          if-no-files-found: ignore
+
+  # The BROWSER render parity gate: the wasm/WebGL2 player's frames against the
+  # desktop CLASSIC player's frames of the same scenes. Same flavor on both
+  # sides - the browser IS the classic flavor - so a divergence names the
+  # WebGL/GLES3/Emscripten tier and nothing else; next-vs-browser is this gate
+  # composed with `render-parity` above, and is deliberately not gated as one
+  # wide corridor (run_web_parity_test.py's header argues it).
+  #
+  # Its own job for the same reason `render-parity` is one: the halves are
+  # captured by three different jobs (a wasm tree has no desktop player and a
+  # desktop tree has no browser), and comparing PNGs needs no build, no GPU and
+  # no engine binary crossing between jobs. A missing or empty capture FAILS in
+  # the driver rather than passing as parity.
+  #
+  # It also produces the pair a RELEASE is judged on: desktop NEXT against the
+  # browser, since the browser ships and the desktop classic flavor does not.
+  # That one is REPORTED, not gated - its deltas are the flavor seam's, which
+  # `render-parity` already gates band by band, so a gate here would either
+  # duplicate that at a looser corridor or block on a difference already
+  # adjudicated. What it produces instead is what a look decision needs: the
+  # numbers in the log and SIDE-BY-SIDE pictures in the artifact, on every
+  # commit, whether or not the gate above went red.
+  web-parity:
+    name: Browser render parity (WebGL vs desktop classic)
+    # main only ever fast-forwards onto a commit development already
+    # turned green, and check runs belong to the SHA - so re-running a
+    # verdict here would re-prove the identical commit.
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+    needs:
+      - web
+      - linux-classic
+      - linux-next
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Download the browser captures
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          name: parity-shots-web
+          path: parity/web
+
+      - name: Download the desktop classic captures
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          name: parity-shots-classic
+          path: parity/classic
+
+      - name: Download the desktop next captures
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          name: parity-shots-next
+          path: parity/next
+
+      - name: The lake vignette looks the same in the browser
+        run: |
+          python3 tests/integration_driver/run_web_parity_test.py \
+            --compare-shots --scene scenes/lake.oscene \
+            --shot-web parity/web/lake/web.png \
+            --shot-desktop parity/classic/web-lake/desktop.png \
+            --pair-image parity/pairs/lake_browser_vs_classic.png
+
+      - name: The planar mirror looks the same in the browser
+        run: |
+          python3 tests/integration_driver/run_web_parity_test.py \
+            --compare-shots --scene scenes/mirrorlake.oscene \
+            --shot-web parity/web/mirrorlake/web.png \
+            --shot-desktop parity/classic/web-mirrorlake/desktop.png \
+            --pair-image parity/pairs/mirrorlake_browser_vs_classic.png
+
+      # The release pair, reported and pictured. `if: always()` because a red
+      # gate above is exactly when someone wants to LOOK at these: the run must
+      # still produce the pictures, and this step's own exit code stays 0 by
+      # construction (--report-only), so it can never turn a green matrix red.
+      - name: What ships against what the browser draws (next, reported)
+        if: always()
+        run: |
+          for scene in lake mirrorlake; do
+            python3 tests/integration_driver/run_web_parity_test.py \
+              --compare-shots --report-only --scene "scenes/$scene.oscene" \
+              --shot-web "parity/web/$scene/web.png" \
+              --shot-desktop "parity/next/web-$scene/desktop.png" \
+              --diff-dir "parity/pairs/$scene-next" \
+              --pair-image "parity/pairs/${scene}_browser_vs_next.png"
+          done
+
+      - name: Upload the compared captures
+        # a divergence is a LOOK verdict - the two frames are what a person
+        # needs to read it, so they travel with the failure, and the driver's
+        # diff image (the delta painted over the scene) is already written
+        # beside the browser frame inside this tree. parity/pairs/ carries the
+        # side-by-side pictures, next-vs-browser included.
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: web-parity-captures
           path: parity
           if-no-files-found: ignore
 
@@ -1044,6 +1191,32 @@ jobs:
           # driver lost its browser discovery and must fail loudly
           ctest --preset web --timeout 600 --output-log ctest-web.log
           ! grep -q "Skipped" ctest-web.log
+
+      # The BROWSER half of the browser parity gate. The suite above already
+      # took these frames (web_parity_capture_<scene>, which asserts each one
+      # is a real render at the pinned capture rectangle); this only lifts them
+      # out of the build tree under the names the comparison job expects, so
+      # there is exactly ONE browser capture per commit. Same condition as the
+      # suite: on a main push nothing was captured and nothing is uploaded -
+      # the web-parity job does not run there either.
+      - name: Stage the browser parity captures
+        if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          for scene in lake mirrorlake; do
+            mkdir -p "web-parity-shots/$scene"
+            cp "build/web-release/tests/web/web_parity/$scene/web.png" \
+              "web-parity-shots/$scene/web.png"
+          done
+          ls -R web-parity-shots
+
+      - name: Upload the browser parity captures
+        if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: parity-shots-web
+          path: web-parity-shots
+          if-no-files-found: error
 
       # The site's live-benchmark embed (/play/) is exported HERE, gated behind
       # the WebGL suite above: this step only runs when the suite passed, so a

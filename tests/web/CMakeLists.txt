@@ -89,6 +89,39 @@ set_tests_properties(export_web_bloom PROPERTIES
     LABELS integration TIMEOUT 600
     SKIP_RETURN_CODE 77)
 
+#   web_parity_capture_<scene>  the BROWSER half of the browser-render-parity
+#                         gate (run_web_parity_test.py): export the benchmark
+#                         vignette as its own main scene, boot it headless at
+#                         the pinned 1280x720 capture rectangle with the
+#                         parity cvar set, and write the frame. The capture
+#                         itself is asserted - right size, an actual scene,
+#                         never the black canvas a dead page composites - and
+#                         the frame is what the CI web-parity job compares
+#                         against the linux-classic job's own capture of the
+#                         same scene. SKIPs (77) without a headless browser;
+#                         the web job refuses a skipped web test, so that skip
+#                         is a failure exactly where the artifact is needed.
+#                         The comparison road (--compare-shots) and the
+#                         both-sides developer road (--engine-build +
+#                         --player-classic) live in the same driver.
+foreach(ORKIGE_WEB_PARITY_SCENE lake mirrorlake)
+    add_test(NAME web_parity_capture_${ORKIGE_WEB_PARITY_SCENE}
+        COMMAND python3
+            "${Orkige_SOURCE_DIR}/tests/integration_driver/run_web_parity_test.py"
+            --capture web
+            --repo "${Orkige_SOURCE_DIR}"
+            --engine-build "${CMAKE_BINARY_DIR}"
+            --scene "scenes/${ORKIGE_WEB_PARITY_SCENE}.oscene"
+            --dir "${CMAKE_CURRENT_BINARY_DIR}/web_parity/${ORKIGE_WEB_PARITY_SCENE}"
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    # the wall covers export + a software-rasterized WebGL boot of a full 3D
+    # vignette on a hosted runner, with slack (the embed test measures ~180s
+    # for the first scene there)
+    set_tests_properties(web_parity_capture_${ORKIGE_WEB_PARITY_SCENE} PROPERTIES
+        LABELS integration TIMEOUT 900
+        SKIP_RETURN_CODE 77)
+endforeach()
+
 #   export_web_embed_click  the benchmark export must render AND be clickable
 #                           inside a small iframe-sized viewport (the way the
 #                           public site embeds it), not just in a full tab. A
