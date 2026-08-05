@@ -98,11 +98,16 @@ PROFILES = {
     # corridor tracks that honestly and re-tightens when that seam closes.
     "lake.oscene": {
         "regions": {
-            # the open sky above the horizon
-            "sky": (0.35, 0.10, 0.95, 0.24, 28.0),
-            # the shore island band (left half, clear of the streak column)
-            "terrain": (0.25, 0.31, 0.44, 0.41, 28.0),
-            # the open water foreground, flanking the streak
+            # the open sky above the horizon (measures 7 on the developer
+            # Metal/GL pair and 7 on the CI llvmpipe/lavapipe pair; corridor
+            # at 2x the worst measurement)
+            "sky": (0.35, 0.10, 0.95, 0.24, 14.0),
+            # the shore island band (left half, clear of the streak column;
+            # measures 4-5 on both pairs today, 10 in the fog-work record -
+            # the corridor clears the historical worst at 1.6x)
+            "terrain": (0.25, 0.31, 0.44, 0.41, 16.0),
+            # the open water foreground, flanking the streak (measures 25-26
+            # on both pairs - the env-fill deep-mip seam; tight by design)
             "water": (0.05, 0.55, 0.35, 0.85, 28.0),
         },
         "streak": True,
@@ -135,10 +140,13 @@ PROFILES = {
     # catches the glint collapsing when something narrows the lobe.
     "mirrorlake.oscene": {
         "regions": {
-            "sky": (0.30, 0.02, 0.95, 0.08, 22.0),
-            "shore": (0.15, 0.12, 0.85, 0.22, 20.0),
-            "watermirror_l": (0.08, 0.25, 0.40, 0.28, 20.0),
-            "watermirror_r": (0.60, 0.25, 0.92, 0.28, 20.0),
+            # direct bands: sky measures 8-9 on both pairs, shore 3-4 today
+            # against the 6-8 strip record; corridors at ~2x the worst
+            "sky": (0.30, 0.02, 0.95, 0.08, 16.0),
+            "shore": (0.15, 0.12, 0.85, 0.22, 16.0),
+            # the mirrored-ridge strips: 7-8 left, 8-9 right on both pairs
+            "watermirror_l": (0.08, 0.25, 0.40, 0.28, 15.0),
+            "watermirror_r": (0.60, 0.25, 0.92, 0.28, 18.0),
             "rockmirror": (0.38, 0.38, 0.52, 0.50, 33.0),
             "water_open": (0.05, 0.36, 0.35, 0.52, 55.0),
         },
