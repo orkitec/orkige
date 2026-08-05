@@ -16,9 +16,9 @@ version bump) — see [vendored-libs.md](vendored-libs.md).
 ## ports/ogre
 
 Overlay of the upstream vcpkg `ogre` port, repinned from the v14.5.2 release
-tag to master commit `63c5e68c8200bb58044434ff0348067bcf733fa6` (2026-07-22,
-declares itself 14.6.0; `version-date` in the port's vcpkg.json) - the first
-reviewed pin that CONTAINS all EIGHT of our merged upstream PRs: the
+tag to master commit `027c77662a8d161a0c9eebf16018ffe4558e1e57` (2026-08-04,
+declares itself 14.6.0; `version-date` in the port's vcpkg.json). The pin
+CONTAINS all EIGHT of our merged upstream PRs: the
 Metal/Vulkan trio (OGRECave/ogre #3667/#3668/#3669, merged 2026-07-07/08),
 the classic-master build/runtime fixes (#3673 zip fallback, #3674 null
 manualRender, #3675 Android cpufeatures, merged 2026-07-17) and the two
@@ -31,16 +31,32 @@ does. The pin moves like ogre-next's: a reviewed bump, full-suite verified,
 never implicit. Enabled from the root `vcpkg.json`. Delete this overlay if
 upstream ever grows equivalent features.
 
-**Moving this pin is a pixel decision, not just a build one.** The classic
-backend renders through the RTSS default scheme
-(`RenderSystemClassic.cpp` composes `SRS_TRANSFORM`, `SRS_VERTEX_COLOUR`,
-`SRS_TEXTURING`, `SRS_ALPHA_TEST` and `SRS_NORMALMAP` render states), so any
-upstream change to RTSS lighting - attenuation curves, directional-light
-handling, where the per-light loop runs, how CookTorrance mixes ambient -
-moves classic's lit output while the next flavor stays exactly where it was.
-That is a one-sided shift, which is precisely what `render_backend_parity`
-fails on. Review the RTSS commits in a candidate range before bumping, and
-budget for re-baselining the parity gate. Local additions:
+**Moving this pin is a pixel decision, not just a build one.** Two paths
+through the RTSS reach the screen, and an upstream lighting change lands on
+only one of them.
+
+A material the engine generates gets a render state composed by hand in
+`RenderSystemClassic.cpp`: the stock `SRS_TRANSFORM`, `SRS_VERTEX_COLOUR`,
+`SRS_TEXTURING`, `SRS_ALPHA_TEST` and `SRS_NORMALMAP` stages, plus four
+ENGINE-OWNED sub-render-states - metal-rough lighting, hemisphere ambient,
+image lighting and atmospheric fog - which stand in for the stock lighting and
+fog stages. Lit surface response therefore comes from
+`orkige_engine/media/rtss/OrkigeLib_MetalRough.glsl`, never from
+`SGXLib_PerPixelLighting.glsl` or `SGXLib_CookTorrance.glsl`. That library
+includes `RTSLib_Lighting.glsl` for `getAngleAttenuation` alone and computes
+its own distance falloff inline, so upstream attenuation and directional-light
+work does not reach it.
+
+A material that never gets an engine-built render state falls through
+`handleSchemeNotFound` (`engine_graphic/Engine.h`), which registers a shader
+technique against the scheme's DEFAULT render state - `SRS_TRANSFORM`,
+`SRS_VERTEX_COLOUR`, `SRS_PER_PIXEL_LIGHTING`, `SRS_TEXTURING`, `SRS_FOG`,
+`SRS_ALPHA_TEST` (`OgreShaderRenderState.cpp`). That is the surface an
+upstream RTSS lighting change moves, and it moves classic alone while the next
+flavor stays exactly where it was - a one-sided shift, which is precisely what
+`render_backend_parity` fails on. Read the RTSS commits in a candidate range
+before bumping, classify them by which of the two paths they touch, and budget
+for re-baselining the parity gate. Local additions:
 
 - `metal` feature (`OGRE_BUILD_RENDERSYSTEM_METAL=ON`, Apple platforms) so
   RenderSystem_Metal is available next to GL3Plus - the upstream port has no
@@ -84,9 +100,16 @@ budget for re-baselining the parity gate. Local additions:
 - Future upstream-candidate fixes follow the same lifecycle these did: vendor
   the patch in the port the same day the PR goes upstream, then drop the patch
   file at the next reviewed pin bump once it is merged.
-- `fix-dependencies.patch` (upstream vcpkg patch, locally amended): the
-  OGREConfig.cmake template's `find_dependency(SDL2 CONFIG)` is now guarded
-  by `if(NOT "@ANDROID@" AND NOT "@EMSCRIPTEN@")` - the same condition OGRE's
+- `fix-dependencies.patch` (upstream vcpkg patch, locally amended): resolves
+  OGRE's dependencies through the vcpkg CMake configs instead of its bundled
+  find modules, and redirects the overlay component's configure-time imgui
+  DOWNLOAD to `find_package(imgui CONFIG REQUIRED)` - a port build performs no
+  network fetch, and the overlay links the same `ports/imgui` this repository
+  pins everywhere else. That hunk's context carries upstream's own imgui
+  version string, so it needs one line rebased whenever upstream bumps imgui.
+  The local amendment is the OGREConfig.cmake template's
+  `find_dependency(SDL2 CONFIG)`, now guarded by
+  `if(NOT "@ANDROID@" AND NOT "@EMSCRIPTEN@")` - the same condition OGRE's
   own CMake uses to skip SDL2 there, and the same platforms the port's
   vcpkg.json excludes the sdl2 dependency on. Without the guard the installed
   config hard-fails on arm64-android (SDL2 is never installed for it).
@@ -101,6 +124,76 @@ budget for re-baselining the parity gate. Local additions:
   own Xcode toolchain file - the triplet passes `-DAPPLE_IOS=ON` for this
   port (plus `VCPKG_OSX_ARCHITECTURES arm64`, because OGRE pre-seeds
   `CMAKE_OSX_ARCHITECTURES=x86_64` before `project()`).
+
+### The patch set
+
+Applied in this order (`portfile.cmake`), each verified to apply clean against
+the pinned REF:
+
+| Patch | Why it exists |
+|-------|---------------|
+| `fix-dependencies.patch` | resolve dependencies through the vcpkg CMake configs; redirect the imgui download to `ports/imgui` (detailed above) |
+| `cfg-rel-paths.patch` | resolve the installed `resources.cfg`'s plugin and media paths relative to the config file's own directory, and let the port's `OGRE_CFG_INSTALL_PATH` stand on Apple platforms, so the package relocates |
+| `swig-python-polyfill.patch` | define `_PyObject_GC_UNTRACK` for the SWIG-generated Python module where SWIG is older than 4.0.1 and Python 3.8 or newer removed it |
+| `pkgconfig.patch` | the static `.pc` template's `Requires:` line is configured from what the build actually enables, instead of a fixed list naming packages that may be absent |
+| `same-install-rules-all-platforms.patch` | drop the macOS-only `/${PLATFORM_NAME}` release subdirectory from the library install path, so one layout holds everywhere |
+| `ios-ninja-and-install-paths.patch` | the iOS + Ninja fixes (detailed above); applies on top of the previous patch |
+| `cmake4.patch` | move `enable_language(OBJC/OBJCXX)` below `project()` - CMake 4 refuses a language enabled before the project call |
+| `vulkan-vcpkg-deps.patch` | resolve vulkan-headers/glslang through their CMake configs; applies on top of `fix-dependencies.patch` |
+
+### Pinned range: 2026-07-22 to 2026-08-04
+
+Twenty-five upstream commits, `63c5e68c8` to `027c77662`. No dependency was
+added or removed and no CMake option was renamed, so the port's feature set
+(`assimp`, `overlay`, `zip`, `metal`, `vulkan`, `freeimage`, `bullet`,
+`openexr`, `d3d9`, `java`, `python`, `csharp`, `strict`, `tools`) still maps
+onto upstream's option names one for one. Two commits bump the versions of
+zlib (1.3.2) and freetype (2.14.3) that `CMake/Dependencies.cmake` would
+build; this port sets `OGRE_BUILD_DEPENDENCIES=OFF` and takes both from
+vcpkg, so neither reaches the build.
+
+**Reaches the fallback lighting path** - `SRS_PER_PIXEL_LIGHTING` and the
+`FFPLighting` base it derives from, so these are the parity-relevant ones:
+
+- `36dbf36fa` RTSS: Lighting - use smoothed distance attenuation. Adds a
+  `vec4` overload of `getDistanceAttenuation` in `RTSLib_Lighting.glsl` -
+  the classical falloff multiplied by a quartic smoothstep that reaches zero
+  at the light's range - and switches the per-pixel stage onto it. Point and
+  spot lights fade out where they previously cut off at max distance. The
+  `vec3` overload is untouched.
+- `d4b85c3f5` RTSS: do not attenuate directional lights. The per-pixel stage
+  computes attenuation only inside the `vLightPos.w != 0.0` branch, so a
+  directional light is no longer divided by its constant attenuation term.
+  Directional-lit surfaces brighten wherever that term was not 1.
+- `61e892043` RTSS: FFPLighting - do light iteration in shader. The per-light
+  loop moves out of the generated C++ (one unrolled call per light) into
+  `SGXLib_PerPixelLighting.glsl`, matching the Cook-Torrance stage. The maths
+  is the same; the accumulation order and the generated shader are not.
+- `5ee1d7d3f` RTSS: fix attenuation when using relaxed precision. Types the
+  classical overload's distance parameter `float32_t`.
+- `3f333feef` RTSS: PerPixelLighting - fix precision for D3D11 compat.
+
+**Cook-Torrance only** - `SRS_COOK_TORRANCE_LIGHTING` and
+`SGXLib_CookTorrance.glsl`, which neither path installs, so these change
+nothing here: `5206bd579` (ambient mixes with `diffuseColour`, so it no longer
+lights a metal that cannot diffuse it), `a05cce808` (energy compensation made
+visible, Schlick takes LoH), `930240674` (light-count logic shared with
+FFPLighting), `4002b30c9` (relaxed-precision fixes), `aee0dee98`
+(uninitialized warning), `c978979e9` (in/out typo).
+
+**Other rendering**: `797b5d7a6` (RTSS static initialization order),
+`b7c941342` (SceneManager keeps its light caches across a program change),
+`92b71cc88` (DistanceSort tie-break), `9e5a7f185` (a `RealRect` overload of
+`Frustum::projectSphere`, with `Camera` re-exporting the base via `using`),
+`2ebfcfd1d` (`Node::convert*` become const; `Mesh::getPoseIndex`),
+`df1276dca` (`uvecN` types in `OgreUnifiedShader.h`), `c99d17878`,
+`74b56aad2` and `027c77662` (Direct3D11).
+
+**Build and samples**: `82b9f6b0a` (imgui 1.92.9 - the overlay source now
+iterates `ImDrawData::CmdLists` as a range, which the 1.92.8 `ports/imgui`
+already declares an `ImVector`, so the two ports stay independently pinned),
+`472d68033` and `3d7e8d81c` (the zlib/freetype versions this port does not
+build), `30ec2f30a` and `5746dd144` (samples).
 
 ## ports/ogre-next
 
