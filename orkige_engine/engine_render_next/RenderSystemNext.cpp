@@ -248,8 +248,7 @@ namespace Orkige
 		image.convertFromTexture(texture, 0, texture->getNumMipmaps() - 1);
 		window->performManualRelease();
 		window->setManualSwapRelease(false);
-		RenderBackend::makeImageAlphaOpaque(image);
-		image.save(fileName, 0, image.getNumMipmaps());
+		RenderBackend::saveImageAsPng(image, fileName);
 	}
 	//---------------------------------------------------------
 	optr<RenderTexture> RenderSystem::createRenderTexture(String const & name,
