@@ -297,6 +297,16 @@ namespace OrkigeEditor
 		Orkige::String	androidKeystore;
 		Orkige::String	androidKeyAlias;
 		Orkige::String	bundletool;
+		//! the macOS Developer ID material a signed desktop export uses. The
+		//! app-specific PASSWORD is deliberately absent: it is a secret, so it
+		//! lives in the vault and reaches the signing step from the
+		//! environment - never through a struct on its way to a command line.
+		Orkige::String	macosIdentity;
+		Orkige::String	notaryKey;
+		Orkige::String	notaryKeyId;
+		Orkige::String	notaryIssuer;
+		Orkige::String	notaryAppleId;
+		Orkige::String	notaryTeamId;
 	};
 
 	//! @brief the credentials in @p values, whichever of them are set (PURE)

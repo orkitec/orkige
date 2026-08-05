@@ -18,6 +18,7 @@
 #include <core_project/Project.h>
 
 #ifdef ORKIGE_HAVE_EXPORTER
+#include <ExportMacosSign.h>
 #include <ExportSettings.h>
 #endif
 
@@ -284,7 +285,9 @@ TEST_CASE("a password has no key, so it cannot be stored", "[buildsettings]")
 TEST_CASE("only an Applied cell contributes storable keys", "[buildsettings]")
 {
 	const std::vector<Orkige::String> keys = machineSettingKeys();
-	CHECK(keys.size() == 7);	// the two iOS pairs + the Android release trio
+	// the two iOS pairs, the Android release trio, and the macOS Developer ID
+	// identity plus the two notarization routes' identifiers
+	CHECK(keys.size() == 13);
 	for(BuildTargetCell const & cell : buildTargetMatrix())
 	{
 		if(cell.state == BuildCellState::Applied) { continue; }
@@ -318,6 +321,18 @@ TEST_CASE("the model names the exporter's own environment variables",
 		OrkigeExport::ANDROID_KEY_ALIAS_ENV);
 	expected.emplace_back("android.release.bundletool",
 		OrkigeExport::BUNDLETOOL_ENV);
+	expected.emplace_back("macos.distribution.identity",
+		OrkigeExport::MACOS_SIGNING_IDENTITY_ENV);
+	expected.emplace_back("macos.distribution.notaryKey",
+		OrkigeExport::NOTARY_KEY_ENV);
+	expected.emplace_back("macos.distribution.notaryKeyId",
+		OrkigeExport::NOTARY_KEY_ID_ENV);
+	expected.emplace_back("macos.distribution.notaryIssuer",
+		OrkigeExport::NOTARY_ISSUER_ENV);
+	expected.emplace_back("macos.distribution.notaryAppleId",
+		OrkigeExport::NOTARY_APPLE_ID_ENV);
+	expected.emplace_back("macos.distribution.notaryTeamId",
+		OrkigeExport::NOTARY_TEAM_ID_ENV);
 
 	std::map<Orkige::String, Orkige::String> byKey;
 	std::vector<Orkige::String> secretVariables;
@@ -349,6 +364,9 @@ TEST_CASE("the model names the exporter's own environment variables",
 		secretVariables.end());
 	CHECK(std::find(secretVariables.begin(), secretVariables.end(),
 		Orkige::String(OrkigeExport::ANDROID_KEY_PASS_ENV)) !=
+		secretVariables.end());
+	CHECK(std::find(secretVariables.begin(), secretVariables.end(),
+		Orkige::String(OrkigeExport::NOTARY_APP_PASSWORD_ENV)) !=
 		secretVariables.end());
 }
 #endif
@@ -498,8 +516,20 @@ TEST_CASE("credentials map onto the export request's own fields",
 	values["android.release.keystore"] = "/keys/upload.jks";
 	values["android.release.keyAlias"] = "upload";
 	values["android.release.bundletool"] = "/tools/bundletool.jar";
+	values["macos.distribution.identity"] = "Developer ID Application: me";
+	values["macos.distribution.notaryKey"] = "/keys/AuthKey.p8";
+	values["macos.distribution.notaryKeyId"] = "ABCDE12345";
+	values["macos.distribution.notaryIssuer"] = "69a6de70-issuer";
+	values["macos.distribution.notaryAppleId"] = "someone@example.com";
+	values["macos.distribution.notaryTeamId"] = "TEAM123456";
 
 	const BuildCredentials credentials = buildCredentialsFrom(values);
+	CHECK(credentials.macosIdentity == "Developer ID Application: me");
+	CHECK(credentials.notaryKey == "/keys/AuthKey.p8");
+	CHECK(credentials.notaryKeyId == "ABCDE12345");
+	CHECK(credentials.notaryIssuer == "69a6de70-issuer");
+	CHECK(credentials.notaryAppleId == "someone@example.com");
+	CHECK(credentials.notaryTeamId == "TEAM123456");
 	CHECK(credentials.iosIdentity == "Apple Development: me");
 	CHECK(credentials.iosProfile == "/keys/dev.mobileprovision");
 	CHECK(credentials.iosDistributionIdentity == "Apple Distribution: me");

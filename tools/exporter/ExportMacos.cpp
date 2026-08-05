@@ -310,7 +310,8 @@ namespace OrkigeExport
 	bool exportMacos(ExportProject const & project, EngineSource const & source,
 		Orkige::String const & outputDirectory,
 		ExportEnvironment const & environment, PayloadTestRun const & tests,
-		Orkige::String & outArtifact, Orkige::String * error)
+		MacosSigning const & signing, Orkige::String & outArtifact,
+		Orkige::String * error)
 	{
 		const Orkige::String nativeTarget = project.nativeTarget();
 		Orkige::String executable;
@@ -603,6 +604,17 @@ namespace OrkigeExport
 			return false;
 		}
 		emit(environment.log, "bundle id " + bundleId);
+
+		// LAST, and only when asked for: a Developer ID seal over the finished
+		// bundle. Everything above wrote into it - the payload, the media, the
+		// icon, the plist - and a signature covers what is there when it is
+		// taken, so nothing may follow this step. With nothing asked for the
+		// bundle keeps the ad-hoc signature it has always shipped with.
+		if(!signMacosBundle(appDirectory, project.exeName(), outputDirectory,
+			signing, environment, error))
+		{
+			return false;
+		}
 		outArtifact = appDirectory;
 		return true;
 	}

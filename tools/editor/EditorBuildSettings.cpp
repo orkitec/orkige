@@ -43,6 +43,18 @@ namespace OrkigeEditor
 			"ORKIGE_ANDROID_KEYSTORE_PASS";
 		const char * const ANDROID_KEY_PASS_ENV = "ORKIGE_ANDROID_KEY_PASS";
 		const char * const BUNDLETOOL_ENV = "ORKIGE_BUNDLETOOL";
+		const char * const MACOS_IDENTITY_ENV =
+			"ORKIGE_MACOS_SIGNING_IDENTITY";
+		// notarization takes either an App Store Connect key (a file plus two
+		// identifiers, revocable on its own) or an Apple ID login whose
+		// password is a secret and therefore lives in the vault
+		const char * const NOTARY_KEY_ENV = "ORKIGE_NOTARY_KEY";
+		const char * const NOTARY_KEY_ID_ENV = "ORKIGE_NOTARY_KEY_ID";
+		const char * const NOTARY_ISSUER_ENV = "ORKIGE_NOTARY_ISSUER_ID";
+		const char * const NOTARY_APPLE_ID_ENV = "ORKIGE_NOTARY_APPLE_ID";
+		const char * const NOTARY_APP_PASSWORD_ENV =
+			"ORKIGE_NOTARY_APP_PASSWORD";
+		const char * const NOTARY_TEAM_ID_ENV = "ORKIGE_NOTARY_TEAM_ID";
 
 		//! the machine-store subdirectory, under the editor's writable state
 		const char * const SETTINGS_DIR_NAME = "buildsettings";
@@ -123,7 +135,7 @@ namespace OrkigeEditor
 		// the pages the cells below point at, spelled once as doc NAMES so the
 		// doc-link lint reads them off this comment and fails the build if one
 		// is renamed: Docs/ios-signing.md, Docs/store-release.md,
-		// Docs/device-payloads.md
+		// Docs/device-payloads.md, Docs/desktop-export.md
 		std::vector<BuildTargetCell> cells;
 
 		//--- iOS ---------------------------------------------
@@ -228,26 +240,43 @@ namespace OrkigeEditor
 			cells.push_back(cell);
 		}
 		{
-			// present so the shape is visible and the desktop cells are a fill-in
-			// rather than a redesign; disabled and unstored so nothing here
-			// pretends to act
+			// a downloaded app is held to stricter rules than a locally built
+			// one: it needs a certificate, the hardened runtime, and a ticket
+			// saying Apple looked at it. The export that uses these is the
+			// command line's (`--sign` / `--notarize`), which is where the
+			// environment carrying the password already is
 			BuildTargetCell cell;
 			cell.platform = "macos";
 			cell.purpose = BuildPurpose::Distribution;
-			cell.label = "Distribute to other Macs";
-			cell.helpPage = "store-release";
-			cell.state = BuildCellState::Pending;
-			cell.note = "Not wired yet. An exported app is signed ad-hoc, "
-				"which runs here and is refused on anyone else's Mac. "
-				"Distributing one needs a Developer ID identity and "
-				"notarization, which project exports do not do yet - so "
-				"these fields are shown, not stored.";
-			cell.slots.push_back(machineSlot("", "Developer ID identity", "",
-				false, "the Developer ID Application identity that signs a "
-				"distributable app"));
-			cell.slots.push_back(machineSlot("", "Notarization profile", "",
-				false, "the stored notarytool credential profile that submits "
-				"the signed app to Apple"));
+			cell.label = "Distribute to other Macs (signed + notarized)";
+			cell.helpPage = "desktop-export";
+			cell.state = BuildCellState::Applied;
+			cell.slots.push_back(machineSlot("macos.distribution.identity",
+				"Developer ID identity", MACOS_IDENTITY_ENV, false,
+				"the Developer ID Application identity from your keychain "
+				"(security find-identity -v -p codesigning)"));
+			cell.slots.push_back(machineSlot("macos.distribution.notaryKey",
+				"Notary API key", NOTARY_KEY_ENV, true,
+				"the App Store Connect .p8 key file - the preferred route, "
+				"revocable on its own"));
+			cell.slots.push_back(machineSlot("macos.distribution.notaryKeyId",
+				"Notary key id", NOTARY_KEY_ID_ENV, false,
+				"the key's own identifier, shown beside it in App Store "
+				"Connect"));
+			cell.slots.push_back(machineSlot("macos.distribution.notaryIssuer",
+				"Notary issuer id", NOTARY_ISSUER_ENV, false,
+				"your App Store Connect issuer id"));
+			cell.slots.push_back(machineSlot("macos.distribution.notaryAppleId",
+				"Apple ID", NOTARY_APPLE_ID_ENV, false,
+				"the alternative to the API key: your Apple ID, its "
+				"app-specific password and a team id"));
+			cell.slots.push_back(machineSlot("macos.distribution.notaryTeamId",
+				"Notary team id", NOTARY_TEAM_ID_ENV, false,
+				"the team the Apple ID submits under"));
+			cell.slots.push_back(secretSlot("App-specific password",
+				NOTARY_APP_PASSWORD_ENV, "macos.distribution.notaryPassword",
+				"kept in this machine's credential store, never in a file; "
+				"the signing step reads it from the environment"));
 			cells.push_back(cell);
 		}
 
@@ -647,6 +676,12 @@ namespace OrkigeEditor
 		credentials.androidKeystore = valueOf("android.release.keystore");
 		credentials.androidKeyAlias = valueOf("android.release.keyAlias");
 		credentials.bundletool = valueOf("android.release.bundletool");
+		credentials.macosIdentity = valueOf("macos.distribution.identity");
+		credentials.notaryKey = valueOf("macos.distribution.notaryKey");
+		credentials.notaryKeyId = valueOf("macos.distribution.notaryKeyId");
+		credentials.notaryIssuer = valueOf("macos.distribution.notaryIssuer");
+		credentials.notaryAppleId = valueOf("macos.distribution.notaryAppleId");
+		credentials.notaryTeamId = valueOf("macos.distribution.notaryTeamId");
 		return credentials;
 	}
 }

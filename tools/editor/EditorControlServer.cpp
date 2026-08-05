@@ -7071,6 +7071,11 @@ namespace Orkige
 			// a TEST BUILD is a different KIND of package, asked for by name.
 			// The exporter refuses the platforms whose payload a runner cannot
 			// walk, so no verdict can come back from a run that found nothing.
+			// ...and nothing here asks for a SIGNED package: a distribution
+			// build needs machine-local secrets a remote agent does not hold,
+			// so `signRelease` stays false the way `ios-ipa` and `android-aab`
+			// stay off the platform enum above - one rule, three places it
+			// holds (@see tools/exporter/ExportMacosSign.h)
 			PlannedExportOverrides overrides;
 			const String& withTestsArg = request.get("withTests");
 			overrides.withTests =

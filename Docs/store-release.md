@@ -6,6 +6,12 @@ Google Play accepts only a release-signed **Android App Bundle** (`.aab`), and
 the App Store needs a distribution-signed **`.ipa`** uploaded through App Store
 Connect. Those are the `android-aab` and `ios-ipa` export platforms.
 
+Handing a **macOS** game to other people is the same shape of problem with its
+own answer — a Developer ID signature and Apple's notarization, opt-in on the
+`macos` platform through `--sign` / `--notarize`. That page is
+[desktop-export.md](desktop-export.md); everything below about where
+credentials live applies there unchanged.
+
 Both are gated the same way the iOS device path is: they need developer
 credentials that are **machine-local and never committed**, and they **degrade
 honestly** — absent a credential (or a required tool), the exporter refuses and
@@ -62,7 +68,7 @@ device. Each platform tab shows both purposes:
 |---|---|---|
 | **iOS** | signing identity + development provisioning profile (Play on a device, a development install) | distribution identity + App Store/ad-hoc profile |
 | **Android** | nothing to configure — a debug APK is signed with the shared debug keystore, created on this machine on demand | release keystore, key alias, bundletool jar, plus the two passwords (which go to the credential store, never to a file) |
-| **macOS** | nothing to configure — an export is signed ad-hoc, which runs on this machine | shown, not wired: distributing to other Macs needs a Developer ID identity and notarization |
+| **macOS** | nothing to configure — an export is signed ad-hoc, which runs on this machine | Developer ID Application identity, plus one of Apple's two notarization credential routes; the app-specific password goes to the credential store ([desktop-export.md](desktop-export.md)) |
 | **Windows** | nothing to configure — an exported executable is unsigned and runs here | shown, not wired: removing the SmartScreen warning needs your own code-signing certificate |
 
 A cell with nothing to configure says so rather than showing an empty field, and

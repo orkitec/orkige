@@ -130,6 +130,12 @@ namespace
 		overrides.credentials = command.credentials;
 		overrides.withTests = command.withTests;
 		overrides.testFilter = command.testFilter;
+		// the signed-distribution ask travels only on this door (@see
+		// EditorCli.h); the password it may need is read from the environment,
+		// which is the only place an automated run has one - no vault is
+		// installed here by construction
+		overrides.signRelease = command.signRelease;
+		overrides.notarize = command.notarize;
 		String artifact;
 		if(!runPlannedExport(plan, project,
 			[](std::string const & line) { say(line); },

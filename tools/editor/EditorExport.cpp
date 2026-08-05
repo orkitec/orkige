@@ -193,6 +193,17 @@ bool runPlannedExport(OrkigeEditor::EditorExportPlan const& plan,
 		prefer(request.androidKeystore, given.androidKeystore);
 		prefer(request.androidKeyAlias, given.androidKeyAlias);
 		prefer(request.bundletool, given.bundletool);
+		prefer(request.macosSigning.identity, given.macosIdentity);
+		prefer(request.macosSigning.notaryKey, given.notaryKey);
+		prefer(request.macosSigning.notaryKeyId, given.notaryKeyId);
+		prefer(request.macosSigning.notaryIssuer, given.notaryIssuer);
+		prefer(request.macosSigning.notaryAppleId, given.notaryAppleId);
+		prefer(request.macosSigning.notaryTeamId, given.notaryTeamId);
+		// what those names DO is one deliberate ask, and only the headless
+		// door makes it: an app signed for other people needs credentials this
+		// process is not allowed to invent (@see ExportMacosSign.h)
+		request.macosSigning.sign = overrides->signRelease;
+		request.macosSigning.notarize = overrides->notarize;
 		request.withTests = overrides->withTests;
 		request.testFilter = overrides->testFilter;
 	}

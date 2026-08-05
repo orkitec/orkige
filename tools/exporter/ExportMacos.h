@@ -9,6 +9,7 @@
 #ifndef __ExportMacos_h__31_7_2026__18_00_00__
 #define __ExportMacos_h__31_7_2026__18_00_00__
 
+#include "ExportMacosSign.h"
 #include "ExportPayload.h"
 #include "ExportProcess.h"
 #include "ExportProject.h"
@@ -47,10 +48,15 @@ namespace OrkigeExport
 	//! @return false with an honest @p error naming the missing piece
 	//! @param tests a TEST BUILD: carry the project's suite and run it
 	//!        (default off, so a shipping bundle is untouched)
+	//! @param signing what the finished bundle is sealed with. An unresolved
+	//!        one (@ref MacosSigning::real is false) is the DEFAULT: the app
+	//!        keeps the ad-hoc signature the closure step gives it, which is
+	//!        what it has always shipped with (@see ExportMacosSign.h).
 	bool exportMacos(ExportProject const & project, EngineSource const & source,
 		Orkige::String const & outputDirectory,
 		ExportEnvironment const & environment, PayloadTestRun const & tests,
-		Orkige::String & outArtifact, Orkige::String * error);
+		MacosSigning const & signing, Orkige::String & outArtifact,
+		Orkige::String * error);
 
 	//! @brief the Info.plist an exported macOS app carries
 	Orkige::JsonValue macosInfoPlist(ExportProject const & project,

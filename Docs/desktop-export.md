@@ -17,6 +17,10 @@ same `THIRD-PARTY-NOTICES.md`, and the same default-project marker. Only the
 enclosing shape differs, because the two systems disagree about what an
 application is.
 
+Three doors, one implementation: `orkige_export` inside this repository,
+**Build ▸ Export** in the editor, and `orkige_editor export` on a machine that
+carries only an installed Orkige ([editor-cli.md](editor-cli.md)).
+
 ## The desktop platform is the host's own
 
 A desktop package is assembled **around a player binary**, and nothing in the
@@ -39,6 +43,164 @@ answers with the refusal where it does not apply.
 Everything else about an export is unchanged by this: the mobile and browser
 targets ship *another* platform's player, fetched or built, and are governed by
 [device-payloads.md](device-payloads.md) instead.
+
+## The macOS bundle
+
+```
+<Name>.app/Contents/
+    MacOS/<Exe>            the player or the project's own module binary
+    Frameworks/            the executable's non-system dylib closure, with
+                           rpaths rewritten to @executable_path/../Frameworks
+    Resources/
+        Media/             the render flavor's engine media
+        project/           manifest, scenes/, assets/, scripts/, data/
+        orkige_project.txt the marker the runtime reads at boot
+        AppIcon.icns       from export.icon, or the neutral engine icon
+        THIRD-PARTY-NOTICES.md
+    Info.plist             CFBundleIdentifier from export.macos.bundleId
+```
+
+The bundle stands alone: nothing in it resolves against a build tree, which is
+what the `export_macos_lua` test proves by running the exported app from a
+neutral working directory.
+
+## Signing a macOS package: three states, and nothing in between
+
+macOS treats a downloaded app far more strictly than a locally built one, so a
+package meant for **other people's Macs** needs more than the bundle above.
+
+| State | What it is | What it needs |
+|---|---|---|
+| **ad-hoc** (default) | the bundle is internally consistent and names no developer | nothing |
+| **Developer ID** (`--sign`) | signed with your certificate, hardened runtime, secure timestamp | a Developer ID Application identity |
+| **notarized** (`--notarize`) | the same, submitted to Apple and stapled | that identity plus notarization credentials |
+
+An export that asks for nothing produces the ad-hoc package, byte for byte, and
+consults no credential. Signing is opt-in and always explicit.
+
+An ad-hoc app runs on the machine that built it. Copied or downloaded, macOS
+refuses it — a person can still open it through the Finder's context menu, but
+that is a workaround, not a distribution. A **Developer ID** signature names
+you; a **notarized** one carries Apple's own verdict, and the stapled ticket
+means the Mac opening it needs no network to see that verdict.
+
+Nothing in between ships: a signed export whose certificate is missing, or a
+notarized one whose credentials are half configured, **refuses and packages
+nothing**. A half-signed artifact is worse than an honestly ad-hoc one.
+
+### Signing from the command line
+
+```sh
+# Developer ID, no notarization
+orkige_export --project projects/mygame --platform macos \
+    --engine-build build/macos-release \
+    --sign --macos-identity "Developer ID Application: You (TEAM123456)"
+
+# ...and Apple's verdict, stapled into the app
+export ORKIGE_NOTARY_KEY=~/keys/AuthKey_ABCDE12345.p8
+export ORKIGE_NOTARY_KEY_ID=ABCDE12345
+export ORKIGE_NOTARY_ISSUER_ID=69a6de70-....
+orkige_export --project projects/mygame --platform macos \
+    --engine-build build/macos-release --notarize
+```
+
+`--notarize` implies `--sign`: there is nothing to submit without a signature.
+`orkige_editor export` takes the identical flags.
+
+### Credentials
+
+The identity is a certificate's public name and may travel on a command line.
+Everything else comes from the environment — or, in the editor, from **Build ▸
+Project Settings ▸ Signing**, macOS / Distribution, which keeps the names in a
+per-project file outside every project tree and the password in this machine's
+credential store ([store-release.md](store-release.md) has the full model).
+
+| What | Flag | Environment | Settings key |
+|---|---|---|---|
+| Developer ID Application identity | `--macos-identity` | `ORKIGE_MACOS_SIGNING_IDENTITY` | `macos.distribution.identity` |
+| a non-default keychain to search | — | `ORKIGE_MACOS_KEYCHAIN` | — |
+| App Store Connect key file (`.p8`) | `--notary-key` | `ORKIGE_NOTARY_KEY` | `macos.distribution.notaryKey` |
+| ...its key id | `--notary-key-id` | `ORKIGE_NOTARY_KEY_ID` | `macos.distribution.notaryKeyId` |
+| ...its issuer id | `--notary-issuer` | `ORKIGE_NOTARY_ISSUER_ID` | `macos.distribution.notaryIssuer` |
+| Apple ID (the alternative route) | `--notary-apple-id` | `ORKIGE_NOTARY_APPLE_ID` | `macos.distribution.notaryAppleId` |
+| ...its team id | `--notary-team-id` | `ORKIGE_NOTARY_TEAM_ID` | `macos.distribution.notaryTeamId` |
+| ...its app-specific password | **none** | `ORKIGE_NOTARY_APP_PASSWORD` | **none** (the credential store) |
+
+The precedence is one rule everywhere: **an explicit value wins, then the
+environment.** The app-specific password is the one credential with no flag and
+no settings key at all — it is a secret, so it lives in the OS credential store
+and reaches the signing step through the environment, never through a file and
+never on a command line anyone can name.
+
+Apple takes **either** route. The API key wins when both are complete: it is
+revocable on its own, without touching an Apple ID. A route that is *half*
+configured is never silently ignored — the refusal names each value that is not
+set, by variable name and never by value.
+
+### What a signed export runs
+
+Nested code first, because a bundle signature seals what it contains and a
+later nested signature would invalidate it:
+
+```
+codesign --force --sign <identity> --timestamp --options runtime  Frameworks/*
+codesign --force --sign <identity> --timestamp --options runtime  <Name>.app
+codesign --verify --strict --verbose=2                            <Name>.app
+                                          # --notarize continues:
+ditto -c -k --sequesterRsrc --keepParent  <Name>.app  <Name>-notarize.zip
+xcrun notarytool submit <zip> <credentials> --wait --timeout 30m \
+      --output-format json
+xcrun stapler staple    <Name>.app
+xcrun stapler validate  <Name>.app
+spctl --assess --type exec --verbose=2 <Name>.app
+```
+
+The whole sequence is decided up front by a pure planner
+(`tools/exporter/ExportMacosSign.h`) and each command is spawned directly as an
+argv — no shell, nothing handed to a command interpreter. `ditto` rather than a
+zip writer: the bundle's symlinks and executable bits have to survive the trip
+or Apple assesses something that is not the app.
+
+**The verdict is read from Apple's JSON payload, never inferred from an exit
+code** — a submission that came back `Invalid` exits 0. Anything but `Accepted`
+fails the export, and the notarization **log** is fetched and printed first,
+because it is the only thing that names the binary Apple objected to. The
+ticket is stapled only after an acceptance.
+
+**No entitlements.** The hardened runtime's default restrictions are all things
+a game the engine runs does not do: the scripting runtime is an interpreter and
+not a JIT, so no executable-memory exception is needed, and every dylib inside
+the bundle is signed by the same identity in the seal above, so library
+validation holds. An entitlement that is not needed is signed-in permission
+nobody asked for. A game that genuinely requires one gets a reviewed
+entitlements file and a line here beside the reason.
+
+### The wait
+
+`notarytool submit --wait` blocks until Apple answers. The wait is **bounded**:
+30 minutes by default, or whatever `ORKIGE_NOTARY_TIMEOUT` names. Apple's
+service usually answers in minutes and occasionally takes far longer, so a wait
+that runs out is not a rejection — the export says so, names the submission id,
+and nothing is stapled. `xcrun notarytool log <id>` collects the verdict
+afterwards.
+
+In the editor, an export runs on a worker thread and every command line above is
+echoed into the Console as it happens, so a long submission is visibly waiting
+rather than apparently hung. Credential values are replaced with `<redacted>`
+before a line is printed: `notarytool` takes its credentials on an argv and
+offers no alternative, so the values that must never appear travel with each
+planned command and are removed from what is shown.
+
+### Where signing is available
+
+Signed distribution is a **command-line** operation, for the same reason store
+packaging is ([store-release.md](store-release.md)): it needs machine-local
+secrets. `--sign` and `--notarize` exist on `orkige_export` and on
+`orkige_editor export`; the editor's **Build ▸ Export** menu and the MCP
+`export_project` verb both package the ad-hoc app, and neither has a way to ask
+for anything else. What the editor contributes is the credential surface — the
+Signing tab holds the names so the command line finds them without being told
+twice.
 
 ## The Linux package
 
@@ -94,7 +256,7 @@ distribution will refuse to start on an older one, with a loader error naming
 the version it wanted. Building the shipping package on the oldest distribution
 you intend to support is the whole answer.
 
-### What v1 does not do
+### What the Linux package does not do
 
 Stated plainly, because each is a thing somebody will look for:
 
@@ -108,8 +270,8 @@ Stated plainly, because each is a thing somebody will look for:
   ([native-modules.md](native-modules.md)) is refused by name: the module build
   the exporter drives is written against an Apple toolchain today.
 - **No signing.** Linux has no code-signing tier to speak of, so unlike
-  [iOS](ios-signing.md) and [Android](store-release.md) there is nothing to
-  configure and nothing that can be half-signed.
+  [macOS above](#signing-a-macos-package-three-states-and-nothing-in-between)
+  there is nothing to configure and nothing that can be half-signed.
 
 ## Test builds
 
@@ -133,6 +295,19 @@ directory, and a desktop package's payload is loose files either way.
   textures, baked samplers and staged media are what the tests see.
 - `export_macos_lua` / `export_macos_native` / `export_macos_tests` are the
   macOS siblings.
+- `tests/exporter/ExportMacosSignTests.cpp` — the pure signing decisions: the
+  command sequence and its order, the hardened-runtime and timestamp flags,
+  every refusal (each naming its missing credential), the redaction, and the
+  verdict parse where "we could not tell" and "Apple said yes" must never be
+  the same answer. No certificate, no account, no network.
+- `export_macos_signed` (ctest) — the refusal leg runs everywhere: a signed
+  export with no identity must fail, name the variable, and leave no artifact.
+  The signature leg signs for real and puts the result to
+  `codesign --verify --strict`; on a machine with no Developer ID identity it
+  SKIPS (77) rather than passing over nothing. Notarization itself is not a
+  ctest — it is a network round trip against an Apple account, so what is
+  testable about it, the decisions, is tested, and the round trip is exercised
+  by running a real signed export.
 - The platform vocabulary, the artifact naming and every refusal sentence are
   pure functions asserted in `orkige_exporter_tests` and
   `orkige_editor_core_tests` — including that the editor's idea of this host's

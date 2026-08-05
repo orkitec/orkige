@@ -61,10 +61,23 @@ namespace OrkigeEditor
 					command.verb = EditorCliVerb::Help;
 					return command;
 				}
-				// the one valueless export option
+				// the valueless export options
 				if(argument == "--with-tests")
 				{
 					command.withTests = true;
+					continue;
+				}
+				if(argument == "--sign")
+				{
+					command.signRelease = true;
+					continue;
+				}
+				if(argument == "--notarize")
+				{
+					// there is nothing to submit without a signature, so
+					// asking for the verdict asks for the signature too
+					command.signRelease = true;
+					command.notarize = true;
 					continue;
 				}
 				if(index + 1 >= arguments.size())
@@ -108,6 +121,30 @@ namespace OrkigeEditor
 				{
 					command.credentials.bundletool = value;
 				}
+				else if(argument == "--macos-identity")
+				{
+					command.credentials.macosIdentity = value;
+				}
+				else if(argument == "--notary-key")
+				{
+					command.credentials.notaryKey = value;
+				}
+				else if(argument == "--notary-key-id")
+				{
+					command.credentials.notaryKeyId = value;
+				}
+				else if(argument == "--notary-issuer")
+				{
+					command.credentials.notaryIssuer = value;
+				}
+				else if(argument == "--notary-apple-id")
+				{
+					command.credentials.notaryAppleId = value;
+				}
+				else if(argument == "--notary-team-id")
+				{
+					command.credentials.notaryTeamId = value;
+				}
 				else
 				{
 					return refuse(command,
@@ -124,6 +161,18 @@ namespace OrkigeEditor
 			{
 				return refuse(command, "--test-filter only means something in "
 					"a test build - pass --with-tests too");
+			}
+			if(!command.signRelease &&
+				(!command.credentials.macosIdentity.empty() ||
+				 !command.credentials.notaryKey.empty() ||
+				 !command.credentials.notaryKeyId.empty() ||
+				 !command.credentials.notaryIssuer.empty() ||
+				 !command.credentials.notaryAppleId.empty() ||
+				 !command.credentials.notaryTeamId.empty()))
+			{
+				return refuse(command, "a macOS signing credential was named "
+					"without --sign (or --notarize), so nothing would be "
+					"signed with it");
 			}
 			return command;
 		}
@@ -333,6 +382,8 @@ namespace OrkigeEditor
 			"                 [--android-keystore <path>] "
 			"[--android-key-alias <name>]\n"
 			"                 [--bundletool <path>]\n"
+			"                 [--sign | --notarize] "
+			"[--macos-identity <name>]\n"
 			"                 [--with-tests [--test-filter <substring>]]\n"
 			"                 Packages a project with this installation's own\n"
 			"                 engine source. Prints "

@@ -711,5 +711,14 @@ OrkigeExport::ExportRequest& applyBuildCredentials(
 	request.androidKeystore = credentials.androidKeystore;
 	request.androidKeyAlias = credentials.androidKeyAlias;
 	request.bundletool = credentials.bundletool;
+	// the macOS Developer ID names travel the same way - what they DO is still
+	// decided by the request's signing flags, which only the command line sets
+	// (a Build menu export signs ad-hoc, @see ExportMacosSign.h)
+	request.macosSigning.identity = credentials.macosIdentity;
+	request.macosSigning.notaryKey = credentials.notaryKey;
+	request.macosSigning.notaryKeyId = credentials.notaryKeyId;
+	request.macosSigning.notaryIssuer = credentials.notaryIssuer;
+	request.macosSigning.notaryAppleId = credentials.notaryAppleId;
+	request.macosSigning.notaryTeamId = credentials.notaryTeamId;
 	return request;
 }

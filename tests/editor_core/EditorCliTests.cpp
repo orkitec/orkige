@@ -144,6 +144,60 @@ TEST_CASE("export carries the store platforms' credentials", "[editorcli]")
 	REQUIRE(command.credentials.bundletool == "/opt/bundletool.jar");
 }
 
+TEST_CASE("export signs a macOS package only when asked", "[editorcli]")
+{
+	// the default: a package nobody asked to sign is the ad-hoc one, and no
+	// credential is consulted for it
+	const EditorCliCommand plain = parse(
+		{ "export", "--project", "/g", "--platform", "macos" });
+	REQUIRE_FALSE(plain.usageError);
+	REQUIRE_FALSE(plain.signRelease);
+	REQUIRE_FALSE(plain.notarize);
+
+	const EditorCliCommand signed_ = parse({
+		"export", "--project", "/g", "--platform", "macos", "--sign",
+		"--macos-identity", "Developer ID Application: A",
+		"--output", "/out" });
+	REQUIRE_FALSE(signed_.usageError);
+	REQUIRE(signed_.signRelease);
+	REQUIRE_FALSE(signed_.notarize);
+	REQUIRE(signed_.credentials.macosIdentity ==
+		"Developer ID Application: A");
+	// the valueless flag did not eat the option behind it
+	REQUIRE(signed_.outputDirectory == "/out");
+
+	// notarizing implies signing - there is nothing to submit without one
+	const EditorCliCommand notarized = parse({
+		"export", "--project", "/g", "--platform", "macos", "--notarize",
+		"--notary-key", "/keys/AuthKey.p8",
+		"--notary-key-id", "ABCDE12345",
+		"--notary-issuer", "69a6de70-issuer",
+		"--notary-apple-id", "someone@example.com",
+		"--notary-team-id", "TEAM123456" });
+	REQUIRE_FALSE(notarized.usageError);
+	REQUIRE(notarized.signRelease);
+	REQUIRE(notarized.notarize);
+	REQUIRE(notarized.credentials.notaryKey == "/keys/AuthKey.p8");
+	REQUIRE(notarized.credentials.notaryKeyId == "ABCDE12345");
+	REQUIRE(notarized.credentials.notaryIssuer == "69a6de70-issuer");
+	REQUIRE(notarized.credentials.notaryAppleId == "someone@example.com");
+	REQUIRE(notarized.credentials.notaryTeamId == "TEAM123456");
+
+	// a credential named with no signing asked for would silently do nothing
+	const EditorCliCommand danglingCredential = parse({
+		"export", "--project", "/g", "--platform", "macos",
+		"--macos-identity", "Developer ID Application: A" });
+	REQUIRE(danglingCredential.usageError);
+	REQUIRE(danglingCredential.error.find("--sign") != std::string::npos);
+
+	// ...and there is no flag for the app-specific password: it is a secret,
+	// so the environment is the only place it comes from
+	const EditorCliCommand password = parse({
+		"export", "--project", "/g", "--platform", "macos", "--notarize",
+		"--notary-password", "hunter2" });
+	REQUIRE(password.usageError);
+}
+
 TEST_CASE("export --with-tests packages a test build", "[editorcli]")
 {
 	SECTION("the flag is valueless and does not eat the next argument")

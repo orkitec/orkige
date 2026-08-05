@@ -116,6 +116,18 @@ namespace OrkigeExport
 			ANDROID_KEYSTORE_PASS_ENV,
 			ANDROID_KEY_PASS_ENV,
 			BUNDLETOOL_ENV,
+			// the macOS Developer ID material: the certificate's name (public,
+			// and the only one of these that may also arrive on a command
+			// line) and the two notarization credential shapes Apple takes
+			MACOS_SIGNING_IDENTITY_ENV,
+			MACOS_KEYCHAIN_ENV,
+			NOTARY_KEY_ENV,
+			NOTARY_KEY_ID_ENV,
+			NOTARY_ISSUER_ENV,
+			NOTARY_APPLE_ID_ENV,
+			NOTARY_APP_PASSWORD_ENV,
+			NOTARY_TEAM_ID_ENV,
+			NOTARY_TIMEOUT_ENV,
 			// where the Android SDK and the JDK that drives it are found; HOME
 			// (and LOCALAPPDATA on Windows) so the default install location is
 			// reachable when nobody configured anything
@@ -160,6 +172,24 @@ namespace OrkigeExport
 			if(!refusal.empty())
 			{
 				return refuse(error, refusal);
+			}
+		}
+		// the credential gate runs BEFORE anything is copied: a half-signed
+		// artifact is worse than an honestly ad-hoc one, so a signed export
+		// with a missing credential names it and packages nothing
+		MacosSigning macosSigning;
+		if(request.macosSigning.requested())
+		{
+			const String platformRefusal =
+				macosSigningPlatformRefusal(request.platform);
+			if(!platformRefusal.empty())
+			{
+				return refuse(error, platformRefusal);
+			}
+			if(!resolveMacosSigning(request.macosSigning, request.environment,
+				macosSigning, error))
+			{
+				return false;
 			}
 		}
 		if(request.source.fromBundle())
@@ -333,7 +363,7 @@ namespace OrkigeExport
 		if(request.platform == "macos")
 		{
 			packaged = exportMacos(project, source, outputDirectory,
-				environment, tests, artifact, error);
+				environment, tests, macosSigning, artifact, error);
 		}
 		else if(request.platform == "linux")
 		{

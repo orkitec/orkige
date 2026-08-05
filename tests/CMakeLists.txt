@@ -3503,6 +3503,25 @@ if(TARGET orkige_player)
         set_tests_properties(export_macos_tests${ORKIGE_FLAVOR_TEST_SUFFIX}
             PROPERTIES LABELS integration TIMEOUT 900)
 
+        # ...and the fourth question: does a package meant for OTHER people's
+        # Macs refuse rather than emit a half-signed app, and - where a
+        # Developer ID certificate exists - does the signature it writes pass
+        # the check Gatekeeper applies? The refusal leg needs no credentials
+        # and runs everywhere; the signature leg SKIPS (77) on a machine with
+        # no identity rather than passing over nothing.
+        add_test(NAME export_macos_signed${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_export_sign_test.py"
+                --repo "${Orkige_SOURCE_DIR}"
+                --exporter "$<TARGET_FILE:orkige_export>"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+                --engine-build "${CMAKE_BINARY_DIR}"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/macos-signed"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(export_macos_signed${ORKIGE_FLAVOR_TEST_SUFFIX}
+            PROPERTIES LABELS integration TIMEOUT 900
+            SKIP_RETURN_CODE 77)
+
         # the native-module jumper: the exporter builds the module executable
         # (arch-pinned, into the per-flavor native/build-export-<flavor> tree -
         # separate from the editor's compile-on-Play tree) and ships IT instead

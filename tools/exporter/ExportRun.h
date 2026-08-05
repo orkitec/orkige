@@ -9,6 +9,7 @@
 #ifndef __ExportRun_h__1_8_2026__09_00_00__
 #define __ExportRun_h__1_8_2026__09_00_00__
 
+#include "ExportMacosSign.h"
 #include "ExportPayload.h"
 #include "ExportProcess.h"
 #include "ExportProject.h"
@@ -64,6 +65,15 @@ namespace OrkigeExport
 		Orkige::String	androidKeystore;
 		Orkige::String	androidKeyAlias;
 		Orkige::String	bundletool;
+		//! macOS only: sign the finished bundle for OTHER people's Macs
+		//! (Developer ID + hardened runtime, optionally notarized and
+		//! stapled). Default off - a macOS package is ad-hoc signed and this
+		//! request is byte-identical to one that never named it (@see
+		//! ExportMacosSign.h). Deliberately NOT an `export_project` field: a
+		//! signed distribution build needs machine-local secrets a remote
+		//! agent does not hold, the same rule that keeps `ios-ipa` and
+		//! `android-aab` off the endpoint.
+		MacosSigningOptions	macosSigning;
 		//! android-aab only: stop after the unsigned bundle module
 		bool			unsignedBundleModule = false;
 		//! a TEST BUILD: carry the project's `tests/` suite into the payload

@@ -1048,7 +1048,10 @@ value — it lands as a one-line enum addition once a device player build exists
 
 **Store packaging stays CLI-only, deliberately.** The store-submittable
 platforms (`android-aab` — a release-signed Android App Bundle; `ios-ipa` — a
-distribution-signed `.ipa`) are NOT `export_project` enum values. They require
+distribution-signed `.ipa`) are NOT `export_project` enum values, and neither is
+a SIGNED macOS package: `export_project` for `macos` produces the ad-hoc app,
+because `--sign`/`--notarize` are flags only the command line has
+(`Docs/desktop-export.md`). They require
 machine-local secrets — a release keystore + its passwords, an Apple
 distribution certificate + App Store profile — that a remote agent does not (and
 should not) hold, so a store verb over MCP could never do more than gate. The

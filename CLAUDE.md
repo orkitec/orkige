@@ -757,6 +757,16 @@ browser are not there yet).
   `bundletool` resolved via `ORKIGE_BUNDLETOOL`) and `ios-ipa` **refuse rather
   than emit a half-signed artifact** when credentials are absent, and stay
   CLI-only (a headless MCP agent lacks the secrets) — `Docs/store-release.md`.
+- A macOS package is **ad-hoc signed by default**, byte-identical to what it has
+  always been. `--sign` seals it with a Developer ID identity + the hardened
+  runtime and a secure timestamp; `--notarize` additionally submits it to Apple
+  and staples the ticket only after an `Accepted` verdict read out of Apple's
+  own JSON. The whole command sequence is a pure planner spawning argv directly
+  (`tools/exporter/ExportMacosSign.h`), credential values are redacted out of
+  every echoed line, and a missing credential refuses by NAME instead of
+  emitting a half-signed app. Both flags are CLI-only for the store reason
+  above — Build ▸ Export and MCP `export_project` package the ad-hoc app — while
+  the credentials live in the editor's Signing tab. `Docs/desktop-export.md`.
 - **The CLI that ships is the EDITOR's** (`Docs/editor-cli.md`). `orkige_export`
   is a development-tree tool and is NOT part of a release, so on a machine
   carrying only a distributed Orkige the export capability lives inside the
@@ -850,7 +860,7 @@ lives in a doc and is pointed at from here. The full index:
 | `device-payloads.md` | the fetched device players, and the prerequisite tiers per platform |
 | `android-libraries.md` | `.aar` dependencies: `export.android.libraries`, the manifest merge and its refusals |
 | `ios-signing.md` / `store-release.md` / `device-session.md` | signing, store artifacts, phone runs |
-| `desktop-export.md` | the macOS bundle and the Linux portable directory |
+| `desktop-export.md` | the macOS bundle + signing/notarization, the Linux portable directory |
 | `web-export.md` | the wasm player and browser export |
 | `http.md` | the engine HTTP client |
 | `monetization.md` | the store/ads seam, the provider contract, the simulated provider |

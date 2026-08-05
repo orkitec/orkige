@@ -42,10 +42,15 @@
 //! fetches and installs (@see Docs/device-payloads.md), or that platform's own
 //! preset build tree.
 //!
-//! The signing material for the two signed platforms is machine-local and
-//! never committed - a CLI argument, else the environment (@see
-//! ExportSettings.h). Without it those platforms refuse rather than emit a
+//! The signing material for the signed platforms is machine-local and never
+//! committed - a CLI argument, else the environment (@see ExportSettings.h,
+//! ExportMacosSign.h). Without it those platforms refuse rather than emit a
 //! half-signed artifact.
+//!
+//! A macOS package is signed AD-HOC unless `--sign` asks for a Developer ID
+//! signature with the hardened runtime, and `--notarize` additionally submits
+//! it to Apple and staples the ticket - what another Mac needs before it will
+//! open a downloaded game (@see ExportMacosSign.h).
 //!
 //! Output lands in `<project>/builds/<platform>/` (or `--output`). The last
 //! line on success is `orkige_export: OK <artifact>` - the editor's Build menu
@@ -351,12 +356,13 @@ int main(int argc, char ** argv)
 	String androidKeyAlias;
 	String bundletool;
 	String testFilter;
+	OrkigeExport::MacosSigningOptions macosSigning;
 	bool unsignedBundleModule = false;
 	bool withTests = false;
 	for(std::size_t index = 0; index < arguments.size(); ++index)
 	{
 		String const & argument = arguments[index];
-		// the two valueless options
+		// the valueless options
 		if(argument == "--aab-unsigned-module")
 		{
 			unsignedBundleModule = true;
@@ -365,6 +371,19 @@ int main(int argc, char ** argv)
 		if(argument == "--with-tests")
 		{
 			withTests = true;
+			continue;
+		}
+		if(argument == "--sign")
+		{
+			macosSigning.sign = true;
+			continue;
+		}
+		if(argument == "--notarize")
+		{
+			// notarization is a signature Apple has vouched for, so it implies
+			// the signature - there is nothing to submit without one
+			macosSigning.sign = true;
+			macosSigning.notarize = true;
 			continue;
 		}
 		if(index + 1 >= arguments.size())
@@ -399,6 +418,27 @@ int main(int argc, char ** argv)
 		else if(argument == "--android-keystore") { androidKeystore = value; }
 		else if(argument == "--android-key-alias") { androidKeyAlias = value; }
 		else if(argument == "--bundletool") { bundletool = value; }
+		else if(argument == "--macos-identity")
+		{
+			macosSigning.identity = value;
+		}
+		else if(argument == "--notary-key") { macosSigning.notaryKey = value; }
+		else if(argument == "--notary-key-id")
+		{
+			macosSigning.notaryKeyId = value;
+		}
+		else if(argument == "--notary-issuer")
+		{
+			macosSigning.notaryIssuer = value;
+		}
+		else if(argument == "--notary-apple-id")
+		{
+			macosSigning.notaryAppleId = value;
+		}
+		else if(argument == "--notary-team-id")
+		{
+			macosSigning.notaryTeamId = value;
+		}
 		else if(argument == "--test-filter") { testFilter = value; }
 		else { return fail("unknown argument '" + argument + "'"); }
 	}
@@ -415,6 +455,8 @@ int main(int argc, char ** argv)
 			"                      --sdk-pack <installed Orkige SDK>)\n"
 			"                     [--output <dir>]\n"
 			"                     [--with-tests [--test-filter <substring>]]\n"
+			"                     [--sign | --notarize] "
+			"[--macos-identity <name>]\n"
 			"       orkige_export self-contain --frameworks <dir> "
 			"[--search <dir>]... <binary>...\n");
 		return 2;
@@ -428,6 +470,17 @@ int main(int argc, char ** argv)
 	{
 		return fail("--test-filter only means something in a test build - "
 			"pass --with-tests too");
+	}
+	if(!macosSigning.sign && (!macosSigning.identity.empty() ||
+		!macosSigning.notaryKey.empty() || !macosSigning.notaryKeyId.empty() ||
+		!macosSigning.notaryIssuer.empty() ||
+		!macosSigning.notaryAppleId.empty() ||
+		!macosSigning.notaryTeamId.empty()))
+	{
+		// naming a credential without asking for a signed build reads as a
+		// signed build, and would silently produce an ad-hoc one
+		return fail("a macOS signing credential was named without --sign (or "
+			"--notarize), so nothing would be signed with it");
 	}
 	if(!engineBundle.empty() && !engineBuild.empty())
 	{
@@ -463,6 +516,7 @@ int main(int argc, char ** argv)
 	request.androidKeystore = androidKeystore;
 	request.androidKeyAlias = androidKeyAlias;
 	request.bundletool = bundletool;
+	request.macosSigning = macosSigning;
 	request.unsignedBundleModule = unsignedBundleModule;
 	request.environment = OrkigeExport::currentEnvironment();
 	if(!engineBundle.empty())

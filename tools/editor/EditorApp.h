@@ -303,6 +303,15 @@ struct PlannedExportOverrides
 	bool									withTests = false;
 	//! a test build's `--test-filter` substring ("" = the whole suite)
 	std::string								testFilter;
+	//! sign the macOS package for OTHER people's Macs (Developer ID + the
+	//! hardened runtime), and - with @ref notarize - submit it to Apple and
+	//! staple the ticket. Set by the headless `export` subcommand's `--sign` /
+	//! `--notarize` and by nothing else: the Build menu and the control
+	//! endpoint both leave it false, so an interactive or agent-driven export
+	//! is the ad-hoc package it has always been (@see
+	//! tools/exporter/ExportMacosSign.h).
+	bool									signRelease = false;
+	bool									notarize = false;
 };
 
 //! @brief run a planned export to completion on the CALLING thread - the
