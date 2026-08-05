@@ -178,12 +178,13 @@ gates every other render system behind an option but adds this one
 unconditionally, so it is present on every triplet as a property of the
 upstream build rather than a choice this port makes.
 
-**Image codec** is FreeImage on desktop (decode + encode - screenshots need an
-encoder). Mobile drops the FreeImage dependency (`platform: "!ios & !android"`
-in the manifest, matching the classic mobile flavor) and builds the in-tree
-STBI codec (`OGRE_CONFIG_ENABLE_STBI=ON`, decode-only - all device asset
-loading needs). A screenshot-based device check would have to account for the
-missing encoder, same as classic mobile.
+**Image codec** is the in-tree STBI codec on every platform
+(`OGRE_CONFIG_ENABLE_STBI=ON`), which reads the formats engine assets arrive in
+(png, jpg, tga, bmp and friends) and is decode-only. Nothing here needs to
+encode: writing an image is the engine's own job, and the render backend turns
+a texture readback into a PNG through `core_util/PngWriter`
+(`RenderBackend::saveImageAsPng`). That keeps the FreeImage closure - LibRaw,
+OpenEXR, LibTIFF, JasPer and the rest - out of every triplet.
 
 **Silent-disable guard**: `OGRE_BUILD_RENDERSYSTEM_VULKAN` is a
 `cmake_dependent_option` gated on `Vulkan_FOUND`, so a failing Vulkan find-probe
@@ -249,9 +250,8 @@ on Linux and Android, `OgreNext::RenderSystem_NULL`) plus
 Ogre-Next app must register). The config detects the consumer's platform
 (`CMAKE_SYSTEM_NAME` = `iOS`/`Android`) to pick the per-platform link
 interfaces: macOS vs iOS platform frameworks on `OgreNext::Main` (iOS uses
-Foundation/UIKit/QuartzCore/CoreGraphics, no Cocoa/Carbon/IOKit), Linux xcb
-libs vs Android's xcb-free Vulkan interface, and it drops
-`freeimage::FreeImage` (and its `find_dependency`) on mobile.
+Foundation/UIKit/QuartzCore/CoreGraphics, no Cocoa/Carbon/IOKit) and Linux xcb
+libs vs Android's xcb-free Vulkan interface.
 
 Patches (the same Xcode-oriented-CMake class as classic's ios/metal patches):
 

@@ -101,7 +101,7 @@ COMPONENTS = [
      "https://sourceware.org/bzip2/", "E D M W",
      "PCF decompression inside FreeType"),
     ("libpng", "libpng", "libpng-2.0", "1.6.58", "http://www.libpng.org/",
-     "E D M W", "PNG decoding"),
+     "E D M W", "PNG-compressed bitmap glyphs inside FreeType"),
     ("glslang", "glslang",
      "Apache-2.0 AND BSD-3-Clause AND MIT AND GPL-3.0-or-later", "16.3.0",
      "https://github.com/KhronosGroup/glslang", "E D M",
@@ -113,47 +113,10 @@ COMPONENTS = [
      "https://github.com/KhronosGroup/Vulkan-Headers", "E D",
      "the Vulkan API headers"),
 
-    # --- the desktop image-codec closure (FreeImage and its dependencies) ---
-    ("FreeImage", "freeimage",
-     "GPL-2.0-only OR GPL-3.0-only OR FreeImage", "3.18.0",
-     "https://freeimage.sourceforge.io/", "E D",
-     "the desktop image codec the default render backend links"),
-    ("LibRaw", "libraw", "LGPL-2.1-only OR CDDL-1.0", "0.22.1",
-     "https://www.libraw.org/", "E D",
-     "raw-photo decoding inside FreeImage"),
-    ("OpenEXR", "openexr", "BSD-3-Clause", "3.4.13",
-     "https://openexr.com/", "E D", "EXR decoding inside FreeImage"),
-    ("Imath", "imath", "BSD-3-Clause", "3.2.2",
-     "https://github.com/AcademySoftwareFoundation/Imath", "E D",
-     "the math types OpenEXR is built on"),
-    ("libjpeg-turbo", "libjpeg-turbo", "BSD-3-Clause AND IJG", "3.2.0",
-     "https://libjpeg-turbo.org/", "E D",
-     "JPEG decoding inside FreeImage"),
-    ("LibTIFF", "tiff", "libtiff", "4.7.2", "http://www.libtiff.org/",
-     "E D", "TIFF decoding inside FreeImage"),
     ("liblzma (XZ Utils)", "liblzma", "0BSD", "5.8.3",
      "https://tukaani.org/xz/", "E D",
-     "LZMA decompression inside LibTIFF"),
-    ("libwebp", "libwebp", "BSD-3-Clause", "1.6.0",
-     "https://developers.google.com/speed/webp", "E D",
-     "WebP decoding inside FreeImage"),
-    ("OpenJPEG", "openjpeg", "BSD-2-Clause", "2.5.4",
-     "https://www.openjpeg.org/", "E D",
-     "JPEG 2000 decoding inside FreeImage"),
-    ("OpenJPH", "openjph", "BSD-2-Clause", "0.30.1",
-     "https://github.com/aous72/OpenJPH", "E D",
-     "High-Throughput JPEG 2000 decoding inside OpenJPEG"),
-    ("jxrlib", "jxrlib", "BSD-2-Clause", "2019.10.9",
-     "https://github.com/4creators/jxrlib", "E D",
-     "JPEG XR decoding inside FreeImage"),
-    ("JasPer", "jasper", "JasPer-2.0", "4.2.9",
-     "https://jasper-software.github.io/jasper/", "E D",
-     "JPEG 2000 decoding inside FreeImage"),
-    ("Little CMS", "lcms", "MIT", "2.19.1", "https://littlecms.com/",
-     "E D", "colour management inside FreeImage"),
-    ("libdeflate", "libdeflate", "MIT", "1.25",
-     "https://github.com/ebiggers/libdeflate", "E D",
-     "deflate inside OpenEXR"),
+     "LZMA decompression inside libsystemd, which the Linux D-Bus "
+     "dependency links"),
 
     # --- editor only ---
     ("Dear ImGui", "imgui", "MIT", "1.92.8",
@@ -285,30 +248,10 @@ def main():
     w("are the ones that are not, stated plainly rather than buried in the")
     w("table. **Read them before publishing a closed-source binary.**")
     w("")
-    w("### LibRaw - LGPL-2.1-only OR CDDL-1.0, statically linked, desktop builds")
-    w("")
-    w("LibRaw reaches the desktop editor and the desktop player through")
-    w("FreeImage, which the default render backend links. It is offered under")
-    w("either license, at the recipient's choice. CDDL-1.0 is a per-FILE")
-    w("copyleft: it permits combining the covered files into a larger work under")
-    w("other terms, provided the covered source stays available under CDDL.")
-    w("LGPL-2.1 carries a static-relinking obligation.")
-    w("Both texts are reproduced below.")
-    w("")
-    w("### FreeImage - GPL-2.0-only OR GPL-3.0-only OR FreeImage Public License")
-    w("")
-    w("FreeImage is triple-licensed; the FreeImage Public License (FIPL, a")
-    w("Mozilla-Public-License derivative) is the only one of the three that")
-    w("permits combining it into a larger work under other terms. Under FIPL,")
-    w("modifications to FreeImage's own files stay under FIPL and their source")
-    w("must be made available, and a copy of the license must accompany the")
-    w("executable. Orkige modifies none of FreeImage's files.")
-    w("")
-    w("FreeImage is not needed by the mobile or browser builds and is absent")
-    w("from them (`vcpkg.json` gates it off those platforms), and the classic")
-    w("render flavor does not link its codec on any platform. A desktop build on")
-    w("the default flavor does link it, together with the whole codec closure")
-    w("listed below (LibRaw, OpenEXR, LibTIFF, JasPer and the rest).")
+    w("No component in the shipped closure is copyleft. Every entry that")
+    w("offers a copyleft option offers a permissive one beside it, and the")
+    w("permissive one is what is taken; the sections here record the")
+    w("attribution each of those still asks for.")
     w("")
     w("### FreeType - FTL OR GPL-2.0-or-later")
     w("")

@@ -27,11 +27,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Android")
 else()
     set(_ogre_next_android FALSE)
 endif()
-if(_ogre_next_ios OR _ogre_next_android)
-    set(_ogre_next_mobile TRUE)
-else()
-    set(_ogre_next_mobile FALSE)
-endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     set(_ogre_next_windows TRUE)
 else()
@@ -40,11 +35,6 @@ endif()
 
 include(CMakeFindDependencyMacro)
 find_dependency(ZLIB)
-if(NOT _ogre_next_mobile)
-    # FreeImage is the desktop image codec (decode + encode); mobile builds
-    # the port with the in-tree STBI codec and no FreeImage dependency
-    find_dependency(freeimage CONFIG)
-endif()
 if(NOT APPLE)
     # the Vulkan RS: on Linux the loader+headers come from the vcpkg vulkan-*
     # ports, on Android from the NDK sysroot (CMake's built-in FindVulkan
@@ -123,11 +113,9 @@ else()
     set(_ogre_next_main_platform_libs "X11;Xt;Xaw;Xrandr;pthread;dl")
 endif()
 
-if(_ogre_next_mobile)
-    set(_ogre_next_image_libs "ZLIB::ZLIB")
-else()
-    set(_ogre_next_image_libs "ZLIB::ZLIB;freeimage::FreeImage")
-endif()
+# the port builds its image codec in tree (STBI, decode-only) on every
+# platform, so OgreMain's only image-side link dependency is zlib
+set(_ogre_next_image_libs "ZLIB::ZLIB")
 
 _ogre_next_add_library(OgreNext::Main OgreNextMainStatic FALSE)
 set_target_properties(OgreNext::Main PROPERTIES

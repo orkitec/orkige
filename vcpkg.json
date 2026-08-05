@@ -12,10 +12,6 @@
         "overlay",
         "zip",
         {
-          "name": "freeimage",
-          "platform": "!ios & !android & !emscripten"
-        },
-        {
           "name": "metal",
           "platform": "osx | ios"
         },
