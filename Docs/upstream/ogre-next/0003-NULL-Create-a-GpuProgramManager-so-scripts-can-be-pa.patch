@@ -1,0 +1,277 @@
+From 7c1ea31a6cf30e71de2703442f38257d5a87f154 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Steffen=20R=C3=B6mer?= <steffen.roemer@orkitec.com>
+Date: Wed, 5 Aug 2026 15:39:20 +0300
+Subject: [PATCH] [NULL] Create a GpuProgramManager, so scripts can be parsed
+
+NULLRenderSystem creates a HardwareBufferManager, a VaoManager and a
+TextureGpuManager, but no GpuProgramManager, so msSingleton stays null for
+the whole process lifetime and parsing any .material or .program script
+aborts:
+
+    Assertion failed: (msSingleton), function getSingleton,
+      file OgreGpuProgramManager.cpp, line 52
+
+reached from the script compiler translating a vertex_program /
+fragment_program declaration.
+
+Add NULLGpuProgramManager, created beside the other managers in
+_createRenderWindow and destroyed in shutdown(), the way Metal and Vulkan
+create theirs. It holds no state of its own: both createImpl overloads
+return a NULLGpuProgram, the low level counterpart of OgreMain's own
+NullProgram - it accepts any type and syntax code, compiles nothing,
+reports isSupported() == false and calculateSize() == 0.
+
+Nothing starts pretending to work. NULL advertises no shader profiles, so
+isSyntaxSupported() stays false and the compiler takes the road it already
+takes for a program meant for another render system: it reports the
+program as unsupported by this render system and registers it. That leaves
+the program unloaded, so a program's source is never even read from disk,
+and any technique using it is dropped as unsupported.
+---
+ .../NULL/include/OgreNULLGpuProgramManager.h  | 62 ++++++++++++
+ .../NULL/include/OgreNULLPrerequisites.h      |  1 +
+ .../NULL/include/OgreNULLRenderSystem.h       |  1 +
+ .../NULL/src/OgreNULLGpuProgramManager.cpp    | 97 +++++++++++++++++++
+ .../NULL/src/OgreNULLRenderSystem.cpp         |  8 +-
+ 5 files changed, 168 insertions(+), 1 deletion(-)
+ create mode 100644 RenderSystems/NULL/include/OgreNULLGpuProgramManager.h
+ create mode 100644 RenderSystems/NULL/src/OgreNULLGpuProgramManager.cpp
+
+diff --git a/RenderSystems/NULL/include/OgreNULLGpuProgramManager.h b/RenderSystems/NULL/include/OgreNULLGpuProgramManager.h
+new file mode 100644
+index 000000000..f5729a5a9
+--- /dev/null
++++ b/RenderSystems/NULL/include/OgreNULLGpuProgramManager.h
+@@ -0,0 +1,62 @@
++/*
++-----------------------------------------------------------------------------
++This source file is part of OGRE-Next
++    (Object-oriented Graphics Rendering Engine)
++For the latest info, see http://www.ogre3d.org/
++
++Copyright (c) 2000-2017 Torus Knot Software Ltd
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in
++all copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
++THE SOFTWARE.
++-----------------------------------------------------------------------------
++*/
++
++#ifndef _OgreNULLGpuProgramManager_H_
++#define _OgreNULLGpuProgramManager_H_
++
++#include "OgreNULLPrerequisites.h"
++
++#include "OgreGpuProgramManager.h"
++
++namespace Ogre
++{
++    /** Dummy GpuProgramManager, so that scripts declaring low level programs can be
++        parsed instead of asserting on a missing singleton.
++
++        Every program it hands out is inert: it holds no microcode, compiles nothing
++        and reports isSupported() == false, since there is no GPU to compile for.
++    */
++    class _OgreNULLExport NULLGpuProgramManager final : public GpuProgramManager
++    {
++    protected:
++        /// @copydoc ResourceManager::createImpl
++        Resource *createImpl( const String &name, ResourceHandle handle, const String &group,
++                              bool isManual, ManualResourceLoader *loader,
++                              const NameValuePairList *createParams ) override;
++        /// Specialised create method with specific parameters
++        Resource *createImpl( const String &name, ResourceHandle handle, const String &group,
++                              bool isManual, ManualResourceLoader *loader, GpuProgramType gptype,
++                              const String &syntaxCode ) override;
++
++    public:
++        NULLGpuProgramManager();
++        ~NULLGpuProgramManager() override;
++    };
++}  // namespace Ogre
++
++#endif
+diff --git a/RenderSystems/NULL/include/OgreNULLPrerequisites.h b/RenderSystems/NULL/include/OgreNULLPrerequisites.h
+index 627919ff4..de8b5ef61 100644
+--- a/RenderSystems/NULL/include/OgreNULLPrerequisites.h
++++ b/RenderSystems/NULL/include/OgreNULLPrerequisites.h
+@@ -35,6 +35,7 @@ THE SOFTWARE.
+ namespace Ogre
+ {
+     // Forward declarations
++    class NULLGpuProgramManager;
+     class NULLStagingBuffer;
+     class NULLRenderSystem;
+     class NULLVaoManager;
+diff --git a/RenderSystems/NULL/include/OgreNULLRenderSystem.h b/RenderSystems/NULL/include/OgreNULLRenderSystem.h
+index 381b80ee9..b486a22d5 100644
+--- a/RenderSystems/NULL/include/OgreNULLRenderSystem.h
++++ b/RenderSystems/NULL/include/OgreNULLRenderSystem.h
+@@ -59,6 +59,7 @@ namespace Ogre
+         bool mInitialized;
+ 
+         v1::HardwareBufferManager *mHardwareBufferManager;
++        NULLGpuProgramManager     *mShaderManager;
+ 
+         ConfigOptionMap mOptions;
+ 
+diff --git a/RenderSystems/NULL/src/OgreNULLGpuProgramManager.cpp b/RenderSystems/NULL/src/OgreNULLGpuProgramManager.cpp
+new file mode 100644
+index 000000000..86895677b
+--- /dev/null
++++ b/RenderSystems/NULL/src/OgreNULLGpuProgramManager.cpp
+@@ -0,0 +1,97 @@
++/*
++-----------------------------------------------------------------------------
++This source file is part of OGRE-Next
++    (Object-oriented Graphics Rendering Engine)
++For the latest info, see http://www.ogre3d.org/
++
++Copyright (c) 2000-2017 Torus Knot Software Ltd
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in
++all copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
++THE SOFTWARE.
++-----------------------------------------------------------------------------
++*/
++
++#include "OgreNULLGpuProgramManager.h"
++
++#include "OgreGpuProgram.h"
++#include "OgreResourceGroupManager.h"
++
++namespace Ogre
++{
++    /// The low level counterpart of OgreMain's NullProgram: it exists so a script can
++    /// declare a program, and does nothing else.
++    class NULLGpuProgram final : public GpuProgram
++    {
++    protected:
++        void loadFromSource() override {}
++        void unloadImpl() override {}
++
++    public:
++        NULLGpuProgram( ResourceManager *creator, const String &name, ResourceHandle handle,
++                        const String &group, bool isManual, ManualResourceLoader *loader ) :
++            GpuProgram( creator, name, handle, group, isManual, loader )
++        {
++        }
++        ~NULLGpuProgram() override {}
++
++        /// Overridden from GpuProgram - never supported, nothing was compiled
++        bool isSupported() const override { return false; }
++
++        size_t calculateSize() const override { return 0; }
++
++        /// Overridden from StringInterface
++        bool setParameter( const String & /*name*/, const String & /*value*/ ) override
++        {
++            // always silently ignore all parameters so as not to report errors on
++            // unsupported platforms
++            return true;
++        }
++    };
++    //-----------------------------------------------------------------------------
++    NULLGpuProgramManager::NULLGpuProgramManager() : GpuProgramManager()
++    {
++        // Superclass sets up members
++
++        // Register with resource group manager
++        ResourceGroupManager::getSingleton()._registerResourceManager( mResourceType, this );
++    }
++    //-----------------------------------------------------------------------------
++    NULLGpuProgramManager::~NULLGpuProgramManager()
++    {
++        // Unregister with resource group manager
++        ResourceGroupManager::getSingleton()._unregisterResourceManager( mResourceType );
++    }
++    //-----------------------------------------------------------------------------
++    Resource *NULLGpuProgramManager::createImpl( const String &name, ResourceHandle handle,
++                                                 const String &group, bool isManual,
++                                                 ManualResourceLoader *loader,
++                                                 const NameValuePairList * )
++    {
++        // The declaration is accepted whatever it says: syntax and type only matter to a
++        // compiler, and there is none
++        return new NULLGpuProgram( this, name, handle, group, isManual, loader );
++    }
++    //-----------------------------------------------------------------------------
++    Resource *NULLGpuProgramManager::createImpl( const String &name, ResourceHandle handle,
++                                                 const String &group, bool isManual,
++                                                 ManualResourceLoader *loader, GpuProgramType,
++                                                 const String & )
++    {
++        return new NULLGpuProgram( this, name, handle, group, isManual, loader );
++    }
++}  // namespace Ogre
+diff --git a/RenderSystems/NULL/src/OgreNULLRenderSystem.cpp b/RenderSystems/NULL/src/OgreNULLRenderSystem.cpp
+index 75f6b4dc3..d70563e1f 100644
+--- a/RenderSystems/NULL/src/OgreNULLRenderSystem.cpp
++++ b/RenderSystems/NULL/src/OgreNULLRenderSystem.cpp
+@@ -29,6 +29,7 @@ Copyright (c) 2000-2014 Torus Knot Software Ltd
+ #include "OgreNULLRenderSystem.h"
+ 
+ #include "OgreDefaultHardwareBufferManager.h"
++#include "OgreNULLGpuProgramManager.h"
+ #include "OgreNULLTextureGpuManager.h"
+ #include "OgreNULLWindow.h"
+ #include "OgreRenderPassDescriptor.h"
+@@ -40,7 +41,8 @@ namespace Ogre
+     NULLRenderSystem::NULLRenderSystem() :
+         RenderSystem(),
+         mInitialized( false ),
+-        mHardwareBufferManager( 0 )
++        mHardwareBufferManager( 0 ),
++        mShaderManager( 0 )
+     {
+     }
+     //-------------------------------------------------------------------------
+@@ -50,6 +52,9 @@ namespace Ogre
+     {
+         OGRE_DELETE mHardwareBufferManager;
+         mHardwareBufferManager = 0;
++
++        OGRE_DELETE mShaderManager;
++        mShaderManager = 0;
+     }
+     //-------------------------------------------------------------------------
+     const String &NULLRenderSystem::getName() const
+@@ -143,6 +148,7 @@ namespace Ogre
+             mHardwareBufferManager = new v1::DefaultHardwareBufferManager();
+             mVaoManager = OGRE_NEW NULLVaoManager();
+             mTextureGpuManager = OGRE_NEW NULLTextureGpuManager( mVaoManager, this );
++            mShaderManager = OGRE_NEW NULLGpuProgramManager();
+ 
+             mInitialized = true;
+         }
+-- 
+2.50.1 (Apple Git-155)
+
