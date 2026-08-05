@@ -500,6 +500,10 @@ find_package(tinyxml2 CONFIG REQUIRED)
 # flattens drawings) through nanosvg's precompiled static libs; the engine
 # archive references their symbols
 find_package(NanoSVG CONFIG REQUIRED)
+# orkige_core's PNG writer compresses through zlib (and the engine's pak
+# reader inflates through it); resolved here explicitly rather than inherited
+# from a render backend's own config, since core references it directly
+find_package(ZLIB REQUIRED)
 if(ORKIGE_MODULE_FLAVOR STREQUAL "next")
     # the Ogre-Next backend (namespaced OgreNext::*). assimp backs the skinned-
     # rig extraction AND the next backend's own mesh import path (Ogre-Next has
@@ -684,7 +688,18 @@ function(orkige_game_module target)
         Jolt::Jolt
         NanoSVG::nanosvg
         NanoSVG::nanosvgrast
+        # provider-after-consumer like the rest of this list: orkige_core's
+        # PNG writer deflates through zlib
+        ZLIB::ZLIB
     )
+    if(WIN32)
+        # orkige_core's platform tier, restated like the rest of the closure
+        # (@see orkige_core/CMakeLists.txt): the debug-net socket layer needs
+        # Winsock, FileWriter's owner-only DACLs advapi32. OS import
+        # libraries, not dependencies - nothing else on this link line may be
+        # relied on to carry them
+        target_link_libraries(${target} PRIVATE ws2_32 advapi32)
+    endif()
     # the HTTP transport's dependency, after the archives that reference it
     # (GNU ld resolves left to right - the same rule the comment above states)
     if(ORKIGE_PACKAGE_HTTP_BACKEND STREQUAL "curl")
