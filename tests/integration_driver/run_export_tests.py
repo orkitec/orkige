@@ -2,7 +2,7 @@
 """ctest driver for running a project's own Lua suite INSIDE A PACKAGE.
 
     run_export_tests.py --repo <root> --exporter <orkige_export>
-                        --project <dir> --platform macos|ios-simulator
+                        --project <dir> --platform macos|linux|ios-simulator
                         --engine-build <dir> --output <dir>
                         [--test-filter <substring>] [--deadline 600]
 
@@ -171,6 +171,31 @@ def run_macos(args, report_dir):
     require(os.path.isdir(os.path.join(app, "Contents", "Resources",
                                        "project", "tests")),
             "the test build carries the project's tests/ directory")
+    return run_desktop_package(args, report_dir, executable)
+
+
+def run_linux(args, report_dir):
+    """the portable directory's test build - the same package a player would
+    receive, running its own suite instead of the game"""
+    if not sys.platform.startswith("linux"):
+        skip("a Linux package is produced on Linux; this host is "
+             + sys.platform)
+    exe_name = project_names(args.project)[1]
+    package = os.path.join(args.output, "package", exe_name)
+    export(args, os.path.join(args.output, "package"))
+    require(os.path.isdir(package), "the exporter produced a package directory")
+    executable = os.path.join(package, exe_name)
+    require(os.path.isfile(executable) and os.access(executable, os.X_OK),
+            "the package carries its executable")
+    require(os.path.isdir(os.path.join(package, "project", "tests")),
+            "the test build carries the project's tests/ directory")
+    return run_desktop_package(args, report_dir, executable)
+
+
+def run_desktop_package(args, report_dir, executable):
+    """run a packaged desktop artifact's own suite and return its exit code.
+    ONE implementation for both desktop shapes: what differs between them is
+    where the executable sits, which the caller already resolved."""
     environment = dict(os.environ)
     environment["ORKIGE_TEST_REPORT_DIR"] = report_dir
     environment["ALSOFT_DRIVERS"] = "null"
@@ -298,7 +323,7 @@ def main():
     parser.add_argument("--exporter", required=True)
     parser.add_argument("--project", required=True)
     parser.add_argument("--platform", required=True,
-                        choices=["macos", "ios-simulator"])
+                        choices=["macos", "linux", "ios-simulator"])
     parser.add_argument("--engine-build", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--test-filter", default="")
@@ -313,6 +338,8 @@ def main():
     os.makedirs(report_dir, exist_ok=True)
     if args.platform == "macos":
         exit_code = run_macos(args, report_dir)
+    elif args.platform == "linux":
+        exit_code = run_linux(args, report_dir)
     else:
         exit_code = run_ios_simulator(args, report_dir)
     judge(report_dir, exit_code)

@@ -79,7 +79,7 @@ own options are flags and an unknown one must stay harmless there.
 
 ```
 orkige_editor export --project <dir>
-                     --platform macos|ios-simulator|ios|ios-ipa|android|
+                     --platform macos|linux|ios-simulator|ios|ios-ipa|android|
                                 android-aab|web
                      [--output <dir>]
                      [--signing-identity <name>]
@@ -94,9 +94,14 @@ orkige_editor export --project <dir>
 
 Output lands in `<project>/builds/<platform>/` unless `--output` says otherwise.
 The platform vocabulary and every artifact shape are the exporter's — see
-[textures.md](textures.md) for the export-time cook, [web-export.md](web-export.md)
-for the browser payload and [device-payloads.md](device-payloads.md) for what a
-phone build needs.
+[desktop-export.md](desktop-export.md) for the two desktop packages,
+[textures.md](textures.md) for the export-time cook,
+[web-export.md](web-export.md) for the browser payload and
+[device-payloads.md](device-payloads.md) for what a phone build needs.
+
+The **desktop** platform is the one this machine runs: a package is assembled
+around a player binary and nothing cross-compiles one, so `macos` packages on a
+Mac and `linux` on Linux, each refusing the other by name.
 
 A phone platform packages out of the installed device player, read from the same
 directory `fetch-payload` writes into — so the two subcommands are one workflow
@@ -121,9 +126,9 @@ instead of the game, exiting with the suite's verdict
 `test` is to a project folder, for the thing that actually ships — the payload's
 cooked textures, baked samplers and staged media are what the tests see.
 
-`macos` and the iOS platforms only. An Android or web payload lives inside an
-archive the runner cannot walk, and is refused by name rather than passing over
-zero tests. `--test-filter` without `--with-tests` is a usage error, because an
+The desktop platforms and the iOS ones only. An Android or web payload lives
+inside an archive the runner cannot walk, and is refused by name rather than
+passing over zero tests. `--test-filter` without `--with-tests` is a usage error, because an
 option that silently did nothing would be worse.
 
 ### The store platforms are here

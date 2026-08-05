@@ -302,8 +302,10 @@ TEST_CASE("a test build is refused where a suite cannot be discovered",
 	"[unit][export]")
 {
 	// the loose-payload platforms: the runner walks a real directory inside
-	// the bundle, exactly as it walks a source tree
+	// the bundle, exactly as it walks a source tree - and a Linux package IS
+	// a directory, so a suite is discovered there for the same reason
 	CHECK(testRunPlatformRefusal("macos").empty());
+	CHECK(testRunPlatformRefusal("linux").empty());
 	CHECK(testRunPlatformRefusal("ios-simulator").empty());
 	CHECK(testRunPlatformRefusal("ios").empty());
 	CHECK(testRunPlatformRefusal("ios-ipa").empty());

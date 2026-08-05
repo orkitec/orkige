@@ -561,7 +561,19 @@ void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
 					ImGui::EndTooltip();
 				}
 			};
-			exportItem("Build for macOS", "macos");
+			// the DESKTOP item is this host's own: a desktop package is
+			// assembled around the host's player binary, so offering the other
+			// desktop system would be offering something no machine here can
+			// produce. A host the exporter has no desktop target for shows no
+			// item at all rather than one that only ever refuses.
+			if (OrkigeEditor::hostExportPlatform() == "macos")
+			{
+				exportItem("Build for macOS", "macos");
+			}
+			else if (OrkigeEditor::hostExportPlatform() == "linux")
+			{
+				exportItem("Build for Linux", "linux");
+			}
 			exportItem("Build for iOS Simulator", "ios-simulator");
 			exportItem("Build for Android APK", "android");
 			ImGui::Separator();

@@ -683,8 +683,12 @@ runs IN PROCESS on a worker thread — no interpreter, no spawned tool.** It
 packages a project as a distributable macOS `.app` (self-contained:
 player/module binary + dylib closure + engine media + project payload; a marker
 file makes the app boot its bundled project with no arguments — `PlayerBundle`
-in `engine_runtime/PlayerRuntime.h`), an iOS-simulator `.app`, an Android APK
-(assembled in process — `ExportAndroidAssemble.h`) or a web payload. Output
+in `engine_runtime/PlayerRuntime.h`), a Linux portable directory (the same
+pieces with no closure to copy — the Linux dependencies are linked statically —
+and the DESKTOP platform is always the HOST's own, since nothing
+cross-compiles a player: `Docs/desktop-export.md`), an iOS-simulator `.app`, an
+Android APK (assembled in process — `ExportAndroidAssemble.h`) or a web
+payload. Output
 lands in `<project>/builds/<platform>/`; ids come from the manifest Settings
 `export.macos.bundleId` / `export.android.package` / `export.ios.bundleId`.
 Every export gets a per-project app icon (`export.icon` source PNG resized by
@@ -836,6 +840,7 @@ lives in a doc and is pointed at from here. The full index:
 | `device-payloads.md` | the fetched device players, and the prerequisite tiers per platform |
 | `android-libraries.md` | `.aar` dependencies: `export.android.libraries`, the manifest merge and its refusals |
 | `ios-signing.md` / `store-release.md` / `device-session.md` | signing, store artifacts, phone runs |
+| `desktop-export.md` | the macOS bundle and the Linux portable directory |
 | `web-export.md` | the wasm player and browser export |
 | `http.md` | the engine HTTP client |
 | `monetization.md` | the store/ads seam, the provider contract, the simulated provider |

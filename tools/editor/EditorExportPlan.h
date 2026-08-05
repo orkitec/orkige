@@ -57,8 +57,8 @@ namespace OrkigeEditor
 	//! planner concatenates and chooses, it never probes.
 	struct EditorExportInputs
 	{
-		//! the requested platform ("macos", "ios-simulator", "ios", "android",
-		//! "web")
+		//! the requested platform ("macos", "linux", "ios-simulator", "ios",
+		//! "android", "web")
 		Orkige::String		platform;
 		Orkige::String		projectRoot;
 		//! does the project carry compiled C++ game code? (a native module
@@ -120,7 +120,10 @@ namespace OrkigeEditor
 		//! arrives ready-made from beside that resolution.
 		Orkige::String		platformToolProblem;
 		//! the desktop package this host produces (hostExportPlatform()), or
-		//! "" where the exporter has no packaging target for it yet
+		//! "" where the exporter has no packaging target for it yet.
+		//! A DESKTOP package is assembled around the host's own player binary
+		//! and nothing cross-compiles one, so a desktop platform that is not
+		//! this one is refused whichever engine source the editor has.
 		Orkige::String		hostPlatform;
 		//! this host's name for the message when it has none ("Linux")
 		Orkige::String		hostName;
@@ -173,7 +176,8 @@ namespace OrkigeEditor
 	bool isExportPlatform(Orkige::String const & platform);
 
 	//! @brief the desktop package platform of the host the editor runs on
-	//! ("macos"), or "" where the exporter has no packaging target yet.
+	//! ("macos", "linux"), or "" where the exporter has no packaging target
+	//! yet.
 	Orkige::String hostExportPlatform();
 
 	//! @brief this host's display name for a refusal ("macOS", "Linux",

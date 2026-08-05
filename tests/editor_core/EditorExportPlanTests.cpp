@@ -8,6 +8,10 @@
 ***************************************************************/
 #include "EditorExportPlan.h"
 
+#ifdef ORKIGE_HAVE_EXPORTER
+#include <ExportRun.h>	// the drift alarm: the mirrored platform vocabulary
+#endif
+
 #include <catch2/catch_test_macros.hpp>
 
 using OrkigeEditor::EditorExportInputs;
@@ -327,8 +331,8 @@ TEST_CASE("export plan: a payload-less copy says what it is missing",
 TEST_CASE("export plan: a host with no packaging target says so",
 	"[editor][export]")
 {
-	// the exporter writes a macOS app today; a copy running elsewhere refuses
-	// with that fact rather than starting an export that produces nothing
+	// a copy running where the exporter writes no desktop package refuses with
+	// that fact rather than starting an export that produces nothing
 	EditorExportInputs inputs = bundleInputs();
 	inputs.hostPlatform.clear();
 	inputs.hostName = "Linux";
@@ -336,6 +340,76 @@ TEST_CASE("export plan: a host with no packaging target says so",
 	CHECK_FALSE(plan.ok);
 	CHECK(plan.error.find("Linux") != Orkige::String::npos);
 	CHECK(plan.error.find("macOS") != Orkige::String::npos);
+}
+
+TEST_CASE("export plan: a Linux editor packages the Linux desktop app",
+	"[editor][export]")
+{
+	// the desktop platform is the host's own, and a Linux host is a first
+	// class one: its own build tree carries the Linux player
+	EditorExportInputs inputs = treeInputs();
+	inputs.platform = "linux";
+	inputs.engineBuildDir = "/tree/build/linux-debug-next";
+	inputs.hostPlatform = "linux";
+	inputs.hostName = "Linux";
+	const EditorExportPlan plan = planProjectExport(inputs);
+	REQUIRE(plan.ok);
+	CHECK(plan.source == EditorExportSource::Tree);
+	CHECK(plan.engineBuild == "/tree/build/linux-debug-next");
+	CHECK(plan.repoRoot == "/tree");
+
+	// ...and a distributed copy packages the payload it carries, exactly as
+	// the macOS one does
+	EditorExportInputs copied = bundleInputs();
+	copied.platform = "linux";
+	copied.hostPlatform = "linux";
+	copied.hostName = "Linux";
+	const EditorExportPlan copiedPlan = planProjectExport(copied);
+	REQUIRE(copiedPlan.ok);
+	CHECK(copiedPlan.source == EditorExportSource::Bundle);
+	CHECK(copiedPlan.engineBuild.empty());
+
+	CHECK(OrkigeEditor::isExportPlatform("linux"));
+}
+
+TEST_CASE("export plan: the OTHER desktop system is refused by name",
+	"[editor][export]")
+{
+	// THE rule: a desktop package is assembled around the host's own player
+	// binary and nothing cross-compiles one. That is true of a source tree as
+	// much as of a copied app - a macOS build tree holds no Linux player - so
+	// the refusal comes before either branch starts talking about where the
+	// engine pieces would come from.
+	struct Cross
+	{
+		const char * platform;
+		const char * host;
+		const char * hostName;
+		const char * wanted;
+	};
+	const Cross crosses[] = {
+		{ "linux", "macos", "macOS", "Linux" },
+		{ "macos", "linux", "Linux", "macOS" },
+	};
+	for(Cross const & cross : crosses)
+	{
+		for(bool fromTree : { true, false })
+		{
+			EditorExportInputs inputs =
+				fromTree ? treeInputs() : bundleInputs();
+			inputs.platform = cross.platform;
+			inputs.hostPlatform = cross.host;
+			inputs.hostName = cross.hostName;
+			const EditorExportPlan plan = planProjectExport(inputs);
+			CHECK_FALSE(plan.ok);
+			// both systems by name, and the reason - never a bare "cannot"
+			CHECK(plan.error.find(cross.wanted) != Orkige::String::npos);
+			CHECK(plan.error.find(cross.hostName) != Orkige::String::npos);
+			CHECK(plan.error.find("cross-compile") != Orkige::String::npos);
+			// and never a path from the machine this was built on
+			CHECK_FALSE(mentions(plan, "/tree/build"));
+		}
+	}
 }
 
 TEST_CASE("export plan: an unknown platform is refused before anything else",
@@ -350,3 +424,32 @@ TEST_CASE("export plan: an unknown platform is refused before anything else",
 	CHECK(OrkigeEditor::isExportPlatform("macos"));
 	CHECK(OrkigeEditor::isExportPlatform("web"));
 }
+
+#ifdef ORKIGE_HAVE_EXPORTER
+TEST_CASE("export plan: the editor and the exporter agree about platforms",
+	"[editor][export]")
+{
+	// EditorCore stays free of the exporter, so the platform vocabulary is
+	// MIRRORED rather than included (@see EditorExportPlan.h) - and this
+	// executable is the one place both spellings are visible at once.
+	for(Orkige::String const & platform : { Orkige::String("macos"),
+		Orkige::String("linux"), Orkige::String("ios-simulator"),
+		Orkige::String("ios"), Orkige::String("android"),
+		Orkige::String("web") })
+	{
+		INFO(platform);
+		CHECK(OrkigeEditor::isExportPlatform(platform));
+		CHECK(OrkigeExport::isPackagedPlatform(platform));
+	}
+	// the desktop pair especially: the editor decides which Build item to
+	// offer from its own host constant and the exporter refuses from its own,
+	// so a disagreement would offer a menu item that always fails
+	CHECK(OrkigeEditor::hostExportPlatform() ==
+		OrkigeExport::hostDesktopPlatform());
+	if(!OrkigeEditor::hostExportPlatform().empty())
+	{
+		CHECK(OrkigeExport::isDesktopPlatform(
+			OrkigeEditor::hostExportPlatform()));
+	}
+}
+#endif

@@ -2073,21 +2073,27 @@ namespace Orkige
 				  "pipeline (tools/exporter, run in process). ASYNC: returns "
 				  "{ accepted, "
 				  "jobId }; poll get_export_results. 'platform' is macos, "
-				  "ios-simulator, android or web. A web export compiles nothing "
-				  "- it packages the prebuilt browser player - so it works from "
-				  "any editor on any host that carries that payload. The other "
+				  "linux, ios-simulator, android or web. A web export compiles "
+				  "nothing - it packages the prebuilt browser player - so it "
+				  "works from any editor on any host that carries that payload. "
+				  "The desktop platform is the HOST's own (a package is "
+				  "assembled around its player binary and nothing "
+				  "cross-compiles one), so an editor on macOS exports macos and "
+				  "one on Linux exports linux, each refusing the other by name. "
+				  "The other "
 				  "platforms package from that platform's preset build tree, "
 				  "either render flavor; a tree that was never built is refused "
 				  "up front with an honest error. Native-module projects export "
-				  "desktop only. withTests packages a TEST BUILD instead of a "
+				  "macos only. withTests packages a TEST BUILD instead of a "
 				  "shippable one: the project's own Lua suite (tests/*.test.lua) "
 				  "rides in the payload and the artifact runs it instead of the "
 				  "game, exiting with the suite's verdict and leaving its JSONL "
-				  "report in the app's writable directory. macos and "
-				  "ios-simulator only - an android or web payload lives inside "
-				  "an archive the runner cannot walk, and is refused by name.",
+				  "report in the app's writable directory. The desktop "
+				  "platforms and ios-simulator only - an android or web payload "
+				  "lives inside an archive the runner cannot walk, and is "
+				  "refused by name.",
 				  { { "platform", "string",
-				      "macos | ios-simulator | android | web", true },
+				      "macos | linux | ios-simulator | android | web", true },
 				    { "withTests", "boolean",
 				      "package a test build (default false)", false },
 				    { "testFilter", "string",
@@ -7007,11 +7013,12 @@ namespace Orkige
 		if (type == "export_project")
 		{
 			const String& platform = request.get("platform");
-			if (platform != "macos" && platform != "ios-simulator" &&
+			if (platform != "macos" && platform != "linux" &&
+				platform != "ios-simulator" &&
 				platform != "android" && platform != "web")
 			{
 				this->sendErr(req, "export_project needs a 'platform' of macos, "
-					"ios-simulator, android or web");
+					"linux, ios-simulator, android or web");
 				return;
 			}
 			if (!state.project.isLoaded())

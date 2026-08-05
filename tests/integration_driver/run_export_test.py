@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """ctest driver for project export: run the exporter for a project/platform,
-assert the packaged artifact's structure, and - for macOS - RUN the exported
-app from a neutral cwd (ORKIGE_DEMO_FRAMES caps the run) so a clean exit proves
-the bundle is genuinely self-contained.
+assert the packaged artifact's structure, and - for the DESKTOP platforms - RUN
+the exported app from a neutral cwd (ORKIGE_DEMO_FRAMES caps the run) so a clean
+exit proves the package is genuinely self-contained.
 
     run_export_test.py --repo <root> --project <dir> --exporter <orkige_export>
-                       --platform macos|ios-simulator|android
+                       --platform macos|linux|ios-simulator|android
                        --engine-build <dir> --output <dir> [--run-frames N]
 
 Exit codes: 0 pass, 77 skip (missing platform build/SDK - the ctest
@@ -219,7 +219,7 @@ def check_payload_samplers(payload_dir, project_dir, platform):
 # display/driver plumbing a windowed run genuinely needs (a headless CI display,
 # a software Vulkan ICD) and the audio-driver choice the suite pins.
 PASSTHROUGH_ENV = ("DISPLAY", "XAUTHORITY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR",
-                   "VK_DRIVER_FILES", "VK_ICD_FILENAMES",
+                   "VK_DRIVER_FILES", "VK_ICD_FILENAMES", "SDL_VIDEO_DRIVER",
                    "LIBGL_ALWAYS_SOFTWARE", "GALLIUM_DRIVER", "ORKIGE_AUDIO_BACKEND")
 
 
@@ -429,6 +429,88 @@ def check_macos(app_dir, exe_name, run_frames, flavor, sandbox_profile):
             % (loader_bundled, os.path.isfile(moltenvk_icd)))
 
 
+def check_linux_dynamic_deps(executable):
+    """what the packaged binary still resolves at RUN time. The Linux closure
+    is linked STATICALLY (VCPKG_LIBRARY_LINKAGE static), so the package bundles
+    no libraries at all - which is only true as long as nothing from the build
+    tree or the vcpkg prefix survives as a shared object. `ldd` is the Linux
+    twin of the macOS `otool -L` self-containment check: every remaining
+    dependency must be the machine's own."""
+    if not shutil.which("ldd"):
+        log("ldd unavailable - dynamic dependencies not inspected")
+        return
+    result = subprocess.run(["ldd", executable], capture_output=True,
+                            text=True)
+    if result.returncode != 0:
+        # a static-pie or fully static binary makes ldd say so rather than
+        # list anything; that is the strongest possible answer here
+        log("ldd reported no dynamic section (%s)"
+            % (result.stdout or result.stderr).strip()[:120])
+        return
+    resolved = []
+    for line in result.stdout.splitlines():
+        parts = line.split("=>")
+        target = (parts[1] if len(parts) > 1 else parts[0]).strip()
+        target = target.split(" (")[0].strip()
+        if not target or not target.startswith("/"):
+            continue
+        resolved.append(target)
+    strays = [path for path in resolved
+              if "vcpkg_installed" in path or "/build/" in path]
+    require(not strays,
+            "no dependency resolves into a build tree or vcpkg (%s)" % strays)
+    log("dynamic dependencies: %d, all system libraries" % len(resolved))
+
+
+def check_linux(app_dir, exe_name, run_frames, flavor):
+    """the portable directory: the binary, the engine media, the payload, the
+    marker and the notices, all beside each other - which is what makes
+    SDL_GetBasePath() resolve them with nothing baked in and no argument."""
+    require(os.path.isdir(app_dir), "package directory exists: " + app_dir)
+    executable = os.path.join(app_dir, exe_name)
+    require(os.path.isfile(executable) and os.access(executable, os.X_OK),
+            "executable ./" + exe_name + " at the package root")
+    marker = os.path.join(app_dir, "orkige_project.txt")
+    require(os.path.isfile(marker), "default-project marker present")
+    with open(marker) as marker_file:
+        require(marker_file.read().strip() == "project",
+                "marker names the bundled project dir")
+    require(os.path.isfile(os.path.join(app_dir, "project",
+                                        "project.orkproj")),
+            "project manifest bundled")
+    require(os.path.isdir(os.path.join(app_dir, "project", "scenes")),
+            "project scenes/ bundled")
+    # flavor-specific engine media, exactly as the other packages carry it
+    media_subdirs = ("Hlms",) if flavor == "next" else ("Main", "RTShaderLib")
+    for media_subdir in media_subdirs:
+        media = os.path.join(app_dir, "Media", media_subdir)
+        require(os.path.isdir(media) and os.listdir(media),
+                "engine media Media/%s bundled" % media_subdir)
+    check_third_party_notices(app_dir, "the package root")
+
+    # the package carries NO libraries: the closure is linked statically, so a
+    # shared object turning up here means something started being copied in
+    # and the "nothing to bundle" property quietly stopped holding
+    shared = sorted(
+        os.path.relpath(os.path.join(parent, name), app_dir)
+        for parent, _dirs, files in os.walk(app_dir) for name in files
+        if name.endswith(".so") or ".so." in name)
+    require(not shared,
+            "the package bundles no shared libraries (found %s)" % shared)
+    check_linux_dynamic_deps(executable)
+
+    # THE proof: the package runs standalone from a NEUTRAL cwd (the output
+    # dir - never the source tree, whose files could mask a missing resource)
+    # with a scrubbed environment, and exits 0 after the frame cap.
+    output_dir = os.path.dirname(app_dir)
+    environment = clean_room_env(output_dir,
+                                 {"ORKIGE_DEMO_FRAMES": str(run_frames)})
+    log("running the exported game (%d frames, cwd = output dir)" % run_frames)
+    result = subprocess.run([executable], cwd=output_dir, env=environment)
+    require(result.returncode == 0,
+            "exported game ran standalone from a neutral cwd and exited 0")
+
+
 def check_ios(app_dir, flavor):
     require(os.path.isdir(app_dir), "app bundle exists: " + app_dir)
     require(os.path.isfile(os.path.join(app_dir, "OrkigePlayer")),
@@ -572,7 +654,7 @@ def main():
                         help="the orkige_export executable under test")
     parser.add_argument("--project", required=True)
     parser.add_argument("--platform", required=True,
-                        choices=["macos", "ios-simulator", "android",
+                        choices=["macos", "linux", "ios-simulator", "android",
                                  "android-aab"])
     parser.add_argument("--engine-build", required=True)
     parser.add_argument("--output", required=True)
@@ -580,6 +662,12 @@ def main():
     args = parser.parse_args()
 
     player_dir = os.path.join(args.engine_build, "tools", "player")
+    if args.platform == "linux" and not sys.platform.startswith("linux"):
+        # a desktop package is assembled around the HOST's player binary, and
+        # the exporter refuses elsewhere by name - there is nothing to assert
+        # here that its own unit case does not
+        skip("a Linux package is produced on Linux; this host is "
+             + sys.platform)
     if args.platform == "ios-simulator" and not os.path.isdir(
             os.path.join(player_dir, "OrkigePlayer.app")):
         skip("no built iOS player app under '%s' - build the matching "
@@ -632,6 +720,15 @@ def main():
         check_payload_dev_only(payload, args.project)
         check_macos(artifact, exe_name, args.run_frames, flavor,
                     make_clean_room(args.repo, args.output))
+    elif args.platform == "linux":
+        # the artifact IS the directory, named for the executable inside it
+        artifact = os.path.join(args.output, exe_name)
+        payload = os.path.join(artifact, "project")
+        check_payload_cook(payload, cooked_names)
+        check_payload_samplers(payload, args.project, args.platform)
+        check_payload_data(payload, args.project)
+        check_payload_dev_only(payload, args.project)
+        check_linux(artifact, exe_name, args.run_frames, flavor)
     elif args.platform == "ios-simulator":
         artifact = os.path.join(args.output, name + ".app")
         check_ios(artifact, flavor)

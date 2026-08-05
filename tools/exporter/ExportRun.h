@@ -40,8 +40,8 @@ namespace OrkigeExport
 	//! @brief what to package, beyond the project itself
 	struct ExportRequest
 	{
-		//! "macos" | "ios-simulator" | "ios" | "ios-ipa" | "android" |
-		//! "android-aab" | "web"
+		//! "macos" | "linux" | "ios-simulator" | "ios" | "ios-ipa" |
+		//! "android" | "android-aab" | "web"
 		Orkige::String	platform;
 		//! the engine pieces: a preset build tree, or a staged payload
 		EngineSource	source;
@@ -81,6 +81,25 @@ namespace OrkigeExport
 
 	//! @brief is @p platform one @ref runExport packages?
 	bool isPackagedPlatform(Orkige::String const & platform);
+
+	//! @brief is @p platform a DESKTOP package - one whose artifact is built
+	//! around the host's own player binary? (PURE)
+	bool isDesktopPlatform(Orkige::String const & platform);
+
+	//! @brief the desktop platform THIS exporter build packages natively -
+	//! "macos" on an Apple build, "linux" on a Linux one - or "" where the
+	//! exporter has no desktop packaging target for the OS it was built for.
+	//! @remarks A compile-time fact, so it is a lookup rather than a probe.
+	Orkige::String hostDesktopPlatform();
+
+	//! @brief "" when a host whose own desktop platform is @p hostDesktop can
+	//! package @p platform; the refusal sentence otherwise (PURE).
+	//! @remarks A desktop package is assembled AROUND A BINARY, and a build
+	//! tree holds exactly one operating system's. Nothing here cross-compiles,
+	//! so an export that would have to invent the other OS's player says so by
+	//! name instead of writing a directory that cannot run.
+	Orkige::String desktopHostRefusal(Orkige::String const & platform,
+		Orkige::String const & hostDesktop);
 
 	//! @brief "" when @p platform can carry a test build, otherwise the one
 	//! sentence saying why it cannot (PURE - no filesystem, no environment).

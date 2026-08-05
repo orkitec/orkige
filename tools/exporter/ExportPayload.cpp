@@ -60,6 +60,23 @@ namespace OrkigeExport
 		}
 	}
 	//---------------------------------------------------------
+	Orkige::String bundledEngineTool(EngineSource const & source,
+		Orkige::String const & name)
+	{
+		const Orkige::String tools = source.bundleTools.empty()
+			? source.bundleResources : source.bundleTools;
+		const Orkige::String path = ExportFiles::join(tools, name);
+		return ExportFiles::isRegularFile(path) ? path : Orkige::String();
+	}
+	//---------------------------------------------------------
+	Orkige::String bundleFlavor(EngineSource const & source)
+	{
+		const Orkige::String media =
+			ExportFiles::join(source.bundleResources, "Media");
+		return ExportFiles::isDirectory(ExportFiles::join(media, "Hlms"))
+			? "next" : "classic";
+	}
+	//---------------------------------------------------------
 	bool stageConfigSettings(ExportProject const & project,
 		Orkige::String const & destination, ExportLog const & log,
 		int * outStaged, Orkige::String * error)

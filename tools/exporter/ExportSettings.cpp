@@ -164,7 +164,12 @@ namespace OrkigeExport
 		{
 			return "web";
 		}
-		return "";	// macos and anything else: the sidecar's default block
+		// the desktop platforms and anything else: the sidecar's default block.
+		// A sidecar's per-platform overrides exist for the targets whose GPUs
+		// want another container (ASTC, ETC2, the browser's own); the desktops
+		// read the same block and cook the same way, so they share the default
+		// rather than each carrying a slot that would always repeat it.
+		return "";
 	}
 	//---------------------------------------------------------
 	Orkige::String launchBackground(SettingMap const & settings,

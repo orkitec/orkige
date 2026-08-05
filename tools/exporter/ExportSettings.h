@@ -52,8 +52,8 @@ namespace OrkigeExport
 	//! verbatim - the config-asset convention (@see engine_input/InputActionMap.h).
 	std::vector<Orkige::String> configSettingKeys();
 
-	//! @brief the texture-cook platform token for an export platform ("macos"
-	//! -> "" the default block, "ios-simulator"/"ios" -> "ios", ...)
+	//! @brief the texture-cook platform token for an export platform (the
+	//! desktops -> "" the default block, "ios-simulator"/"ios" -> "ios", ...)
 	Orkige::String cookPlatformToken(Orkige::String const & platform);
 
 	//--- look ------------------------------------------------

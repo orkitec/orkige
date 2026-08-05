@@ -85,7 +85,8 @@ PREFERRED_ORDER = [
     "getting-started", "lua-api", "gui", "materials", "particles", "sound",
     "meshes", "vector-animation", "character-animation", "localisation",
     "logging", "benchmark",
-    "mcp", "mcp-workflows", "render-abstraction", "web-export",
+    "mcp", "mcp-workflows", "render-abstraction",
+    "desktop-export", "web-export",
     "device-session", "ios-signing", "store-release", "nightly-builds",
     "ports", "vendored-libs",
 ]

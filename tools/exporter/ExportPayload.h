@@ -80,6 +80,18 @@ namespace OrkigeExport
 		bool fromBundle() const { return !this->bundleResources.empty(); }
 	};
 
+	//! @brief the staged payload's executable @p name, or "" when it carries
+	//! none. Executables live in `bundleTools` where a payload keeps them apart
+	//! (a macOS app's `Contents/MacOS`), beside the resources otherwise.
+	Orkige::String bundledEngineTool(EngineSource const & source,
+		Orkige::String const & name);
+
+	//! @brief the render flavor a STAGED payload names through its own shader
+	//! tree ("next" when it carries the Hlms templates, "classic" otherwise).
+	//! @remarks Asked of the MEDIA rather than taken from the caller, so
+	//! nothing can tell an export a flavor the payload does not have.
+	Orkige::String bundleFlavor(EngineSource const & source);
+
 	//! @brief everything one export run needs that is not the project itself
 	struct ExportEnvironment
 	{

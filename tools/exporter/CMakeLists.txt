@@ -43,6 +43,8 @@ add_library(orkige_exporter STATIC
     ExportPayload.cpp
     ExportMacos.h
     ExportMacos.cpp
+    ExportLinux.h
+    ExportLinux.cpp
     ExportZip.h
     ExportZip.cpp
     ExportIos.h

@@ -10,7 +10,7 @@
 //!
 //! @verbatim
 //!   orkige_export --project <dir>
-//!                 --platform macos|ios-simulator|ios|ios-ipa|android|
+//!                 --platform macos|linux|ios-simulator|ios|ios-ipa|android|
 //!                            android-aab|web
 //!                 (--engine-build <preset build dir> | --engine-bundle <dir>
 //!                  [--engine-tools <dir>] [--device-payload <dir>])
@@ -31,6 +31,10 @@
 //! the desktop app - and, when the browser player rides along inside it, the
 //! web build - on a machine with no repository and no build tree. Everything
 //! after the sourcing is the same code, so both produce the same bundle.
+//!
+//! The DESKTOP platform is the host's own: a package is assembled around a
+//! player binary and nothing here cross-compiles one, so `macos` packages on a
+//! Mac and `linux` on Linux, each refusing by name elsewhere.
 //!
 //! A MOBILE package ships that platform's player, which is neither of those:
 //! a phone runs another architecture's binary, so the player is a separate
@@ -402,8 +406,8 @@ int main(int argc, char ** argv)
 	{
 		std::fprintf(stderr,
 			"usage: orkige_export --project <dir>\n"
-			"                     --platform macos|ios-simulator|ios|ios-ipa|"
-			"android|android-aab|web\n"
+			"                     --platform macos|linux|ios-simulator|ios|"
+			"ios-ipa|android|android-aab|web\n"
 			"                     (--engine-build <preset build dir> |\n"
 			"                      --engine-bundle <dir> [--engine-tools "
 			"<dir>]\n"

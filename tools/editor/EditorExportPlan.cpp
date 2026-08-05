@@ -22,7 +22,7 @@ namespace OrkigeEditor
 		const char* const HOST_PLATFORM = "";
 		const char* const HOST_NAME = "Windows";
 #else
-		const char* const HOST_PLATFORM = "";
+		const char* const HOST_PLATFORM = "linux";
 		const char* const HOST_NAME = "Linux";
 #endif
 
@@ -45,7 +45,21 @@ namespace OrkigeEditor
 			{
 				return "macOS";
 			}
+			if(platform == "linux")
+			{
+				return "Linux";
+			}
 			return platform;
+		}
+		//---------------------------------------------------------
+		//! @brief is @p platform a DESKTOP package - one assembled around the
+		//! HOST's own player binary?
+		//! @remarks The vocabulary is mirrored from the exporter rather than
+		//! included (@see EditorExportPlan.h); the drift alarm is the one test
+		//! executable that links both.
+		bool isDesktopPlatform(Orkige::String const & platform)
+		{
+			return platform == "macos" || platform == "linux";
 		}
 		//---------------------------------------------------------
 		//! @brief the preset build tree a Tree-source export packages from:
@@ -87,7 +101,8 @@ namespace OrkigeEditor
 	//---------------------------------------------------------
 	bool isExportPlatform(Orkige::String const & platform)
 	{
-		return platform == "macos" || platform == "ios-simulator" ||
+		return platform == "macos" || platform == "linux" ||
+			platform == "ios-simulator" ||
 			platform == "ios" || platform == "android" || platform == "web";
 	}
 	//---------------------------------------------------------
@@ -106,7 +121,30 @@ namespace OrkigeEditor
 		if(!isExportPlatform(inputs.platform))
 		{
 			return refuse("'" + inputs.platform + "' is not a platform this "
-				"editor exports for (macos, ios-simulator, ios, android, web)");
+				"editor exports for (macos, linux, ios-simulator, ios, "
+				"android, web)");
+		}
+		// a DESKTOP package is assembled around the host's own player binary,
+		// and nothing cross-compiles one - so the answer is the same whichever
+		// engine source this editor has, and it is given before either branch
+		// starts talking about build trees and payloads
+		if(isDesktopPlatform(inputs.platform) &&
+			inputs.platform != inputs.hostPlatform)
+		{
+			const Orkige::String label = platformLabel(inputs.platform);
+			if(inputs.hostPlatform.empty())
+			{
+				return refuse("packaging for " + label + " needs the " + label +
+					" player, and this Orkige runs on " + inputs.hostName +
+					", where project export has no packaging target yet - "
+					"export from an Orkige running on " + label);
+			}
+			return refuse("packaging for " + label + " needs the " + label +
+				" player, and this Orkige runs on " +
+				platformLabel(inputs.hostPlatform) + " - nothing here "
+				"cross-compiles a player for another desktop system. Export "
+				"for " + platformLabel(inputs.hostPlatform) + ", or run "
+				"Orkige on a " + label + " machine");
 		}
 		EditorExportPlan plan;
 		plan.platform = inputs.platform;
@@ -166,7 +204,7 @@ namespace OrkigeEditor
 		{
 			return refuse("this Orkige runs on " + inputs.hostName + ", where "
 				"project export has no packaging target yet - export from an "
-				"Orkige running on " + platformLabel("macos") + ", or build "
+				"Orkige running on a desktop system it packages for, or build "
 				"the game's player from the engine source tree");
 		}
 		if(!webFromBundle && !deviceFromPayload &&

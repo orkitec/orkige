@@ -126,9 +126,27 @@ namespace OrkigeExport
 		return flavor.empty() ? Orkige::String("classic") : flavor;
 	}
 	//---------------------------------------------------------
-	Orkige::String releaseTreeName(Orkige::String const & flavor)
+	Orkige::String releaseTreeName(Orkige::String const & treeName)
 	{
-		return (flavor == "next") ? "macos-release" : "macos-release-classic";
+		// the build type is one hyphen-separated component of the preset name,
+		// so the substitution is exact: "macos-debug-classic" cannot be
+		// mistaken for a name that merely contains the word
+		static const Orkige::String DEBUG_COMPONENT = "debug";
+		std::size_t at = treeName.find(DEBUG_COMPONENT);
+		while(at != Orkige::String::npos)
+		{
+			const bool startsComponent = (at == 0) || (treeName[at - 1] == '-');
+			const std::size_t after = at + DEBUG_COMPONENT.size();
+			const bool endsComponent =
+				(after == treeName.size()) || (treeName[after] == '-');
+			if(startsComponent && endsComponent)
+			{
+				return treeName.substr(0, at) + "release" +
+					treeName.substr(after);
+			}
+			at = treeName.find(DEBUG_COMPONENT, at + 1);
+		}
+		return Orkige::String();
 	}
 	//---------------------------------------------------------
 	bool prefersSiblingReleasePlayer(Orkige::String const & buildType,
@@ -143,10 +161,23 @@ namespace OrkigeExport
 	//---------------------------------------------------------
 	Orkige::String siblingReleaseTree(Orkige::String const & buildDirectory)
 	{
-		const Orkige::String parent = std::filesystem::path(
-			ExportFiles::absolute(buildDirectory)).parent_path().string();
-		return ExportFiles::join(parent,
-			releaseTreeName(renderBackend(buildDirectory)));
+		// a caller may hand over a separator-terminated root; a path that ends
+		// in one has an EMPTY filename, and the sibling would be looked for
+		// one directory too high
+		Orkige::String normalized = ExportFiles::absolute(buildDirectory);
+		while(normalized.size() > 1 && (normalized.back() == '/' ||
+			normalized.back() == '\\'))
+		{
+			normalized.pop_back();
+		}
+		const std::filesystem::path tree = normalized;
+		const Orkige::String sibling =
+			releaseTreeName(tree.filename().string());
+		if(sibling.empty())
+		{
+			return Orkige::String();
+		}
+		return ExportFiles::join(tree.parent_path().string(), sibling);
 	}
 	//---------------------------------------------------------
 	Orkige::String tripletArchitecture(Orkige::String const & triplet)

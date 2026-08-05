@@ -92,12 +92,25 @@ TEST_CASE("the render flavor defaults to classic", "[unit][export]")
 		"classic");
 }
 
-TEST_CASE("each flavor prefers its own release sibling", "[unit][export]")
+TEST_CASE("each tree names its own release sibling", "[unit][export]")
 {
-	// build trees are flavor-bound, so a next export must never reach for the
-	// classic release tree (its libraries link the other backend entirely)
-	CHECK(releaseTreeName("next") == "macos-release");
-	CHECK(releaseTreeName("classic") == "macos-release-classic");
+	// the sibling is derived from the tree's NAME, so everything the name
+	// encodes is carried over: the host it targets and the flavor it is bound
+	// to. Build trees are flavor-bound, so a next export reaching for the
+	// classic release tree would link the other backend entirely - and a Linux
+	// export reaching for a macOS one would name a directory that is not there.
+	CHECK(releaseTreeName("macos-debug") == "macos-release");
+	CHECK(releaseTreeName("macos-debug-classic") == "macos-release-classic");
+	CHECK(releaseTreeName("linux-debug-next") == "linux-release-next");
+	CHECK(releaseTreeName("linux-debug-classic") == "linux-release-classic");
+	CHECK(releaseTreeName("windows-debug") == "windows-release");
+	// the build type is a whole hyphen-separated component, never a substring
+	// somebody's directory happens to contain
+	CHECK(releaseTreeName("my-debugger-tree").empty());
+	// ...and a tree whose name describes no build type has no sibling to name,
+	// rather than one belonging to a different build
+	CHECK(releaseTreeName("scratch").empty());
+	CHECK(releaseTreeName("").empty());
 
 	ScratchDir scratch("sibling");
 	const Orkige::String tree = ExportFiles::join(scratch.path, "macos-debug");
@@ -112,6 +125,23 @@ TEST_CASE("each flavor prefers its own release sibling", "[unit][export]")
 	writeCache(classicTree, "ORKIGE_RENDER_BACKEND:STRING=classic\n");
 	CHECK(siblingReleaseTree(classicTree) ==
 		ExportFiles::join(scratch.path, "macos-release-classic"));
+
+	const Orkige::String linuxTree =
+		ExportFiles::join(scratch.path, "linux-debug-next");
+	REQUIRE(ExportFiles::makeDirectories(linuxTree, 0));
+	writeCache(linuxTree, "ORKIGE_RENDER_BACKEND:STRING=next\n");
+	CHECK(siblingReleaseTree(linuxTree) ==
+		ExportFiles::join(scratch.path, "linux-release-next"));
+
+	// a separator-terminated root still names the sibling BESIDE the tree, not
+	// beside its parent
+	CHECK(siblingReleaseTree(tree + "/") ==
+		ExportFiles::join(scratch.path, "macos-release"));
+
+	// no sibling to name is answered with nothing, so the caller keeps the
+	// tree it was given instead of warning about a directory nobody meant
+	CHECK(siblingReleaseTree(
+		ExportFiles::join(scratch.path, "scratch")).empty());
 }
 
 TEST_CASE("a test build packages the tree it was pointed at", "[unit][export]")

@@ -173,6 +173,13 @@ def main():
         expect(artifact.endswith(".app"), "the macOS artifact is an .app")
         expect(os.path.isdir(os.path.join(artifact, "Contents", "MacOS")),
                "the .app carries an executable directory")
+    elif sys.platform.startswith("linux") and args.platform == "linux":
+        # the portable directory: the binary carries the directory's own name,
+        # which is what makes `cd <dir> && ./<dir>` the whole launch
+        expect(os.path.isdir(artifact), "the Linux artifact is a directory")
+        executable = os.path.join(artifact, os.path.basename(artifact))
+        expect(os.path.isfile(executable) and os.access(executable, os.X_OK),
+               "the directory carries its executable")
 
     log("PASSED")
     return 0

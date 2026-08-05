@@ -49,15 +49,22 @@ namespace OrkigeExport
 	//! cache names none (the historical default)
 	Orkige::String renderBackend(Orkige::String const & buildDirectory);
 
-	//! @brief the shippable Release tree beside @p buildDirectory, when one
-	//! exists: each flavor's release tree is its own (trees are flavor-bound) -
-	//! build/macos-release for Ogre-Next, build/macos-release-classic for
-	//! classic. A Debug player runs far slower, so an export prefers the
-	//! Release sibling of the SAME flavor.
+	//! @brief the shippable Release tree beside @p buildDirectory, or "" when
+	//! its name describes no sibling. A Debug player runs far slower, so an
+	//! export prefers the Release sibling of the same host and flavor.
 	Orkige::String siblingReleaseTree(Orkige::String const & buildDirectory);
 
-	//! @brief the release-tree NAME for a flavor (PURE)
-	Orkige::String releaseTreeName(Orkige::String const & flavor);
+	//! @brief the RELEASE sibling's directory name for a preset tree named
+	//! @p treeName (PURE), or "" when there is none to name.
+	//! @remarks A preset tree is named `<host>-<buildType>[-flavor]`
+	//! (macos-debug, macos-debug-classic, linux-debug-next, windows-debug), so
+	//! the sibling is that name with the build type replaced - which keeps the
+	//! host, the flavor AND anything else the name encodes. Deriving it from
+	//! the name rather than composing one from the flavor is what makes it
+	//! right on every host, and what stops a tree with no release sibling (a
+	//! noscript or sanitizer tree) from being answered with a plausible
+	//! directory belonging to a different build.
+	Orkige::String releaseTreeName(Orkige::String const & treeName);
 
 	//! @brief may an export substitute the sibling RELEASE tree's player for
 	//! the one in the build tree it was pointed at? (PURE)

@@ -63,26 +63,6 @@ namespace OrkigeExport
 			}
 			return true;
 		}
-		//---------------------------------------------------------
-		//! the staged payload's executable @p name, or "" when it lacks it
-		Orkige::String bundledTool(EngineSource const & source,
-			Orkige::String const & name)
-		{
-			const Orkige::String tools = source.bundleTools.empty()
-				? source.bundleResources : source.bundleTools;
-			const Orkige::String path = ExportFiles::join(tools, name);
-			return ExportFiles::isRegularFile(path) ? path : Orkige::String();
-		}
-		//---------------------------------------------------------
-		//! the flavor a STAGED payload names through its own shader tree, so a
-		//! caller cannot tell the exporter a flavor the media does not have
-		Orkige::String bundleFlavor(EngineSource const & source)
-		{
-			const Orkige::String media =
-				ExportFiles::join(source.bundleResources, "Media");
-			return ExportFiles::isDirectory(ExportFiles::join(media, "Hlms"))
-				? "next" : "classic";
-		}
 	}
 	//---------------------------------------------------------
 	Orkige::JsonValue macosInfoPlist(ExportProject const & project,
@@ -194,7 +174,7 @@ namespace OrkigeExport
 		// the same rule the player takes: a TEST BUILD judges the tree it was
 		// pointed at, so it never links a sibling's engine
 		// (@see prefersSiblingReleasePlayer)
-		if(prefersSiblingReleasePlayer(
+		if(!releaseTree.empty() && prefersSiblingReleasePlayer(
 			readCMakeCache(buildDirectory, "CMAKE_BUILD_TYPE"), testBuild))
 		{
 			if(ExportFiles::isRegularFile(ExportFiles::join(
@@ -369,7 +349,7 @@ namespace OrkigeExport
 			}
 			else
 			{
-				executable = bundledTool(source, "orkige_player");
+				executable = bundledEngineTool(source, "orkige_player");
 				if(executable.empty())
 				{
 					return report(error, "no player executable in '" +
@@ -418,12 +398,12 @@ namespace OrkigeExport
 					"release sibling - a suite judges the runtime this tree "
 					"produced");
 			}
-			if(prefersSiblingReleasePlayer(
+			const Orkige::String releaseTree =
+				siblingReleaseTree(source.buildDirectory);
+			if(!releaseTree.empty() && prefersSiblingReleasePlayer(
 				readCMakeCache(source.buildDirectory, "CMAKE_BUILD_TYPE"),
 				tests.enabled))
 			{
-				const Orkige::String releaseTree =
-					siblingReleaseTree(source.buildDirectory);
 				const Orkige::String releasePlayer = ExportFiles::join(
 					ExportFiles::join(releaseTree, "tools/player"),
 					"orkige_player");

@@ -1446,6 +1446,8 @@ if(TARGET orkige_editor)
     # packages a real app, so it is an integration test, not a unit one.
     if(APPLE)
         set(ORKIGE_CLI_EXPORT_ARGS --platform macos)
+    elseif(UNIX)
+        set(ORKIGE_CLI_EXPORT_ARGS --platform linux)
     else()
         set(ORKIGE_CLI_EXPORT_ARGS --skip-export)
     endif()
@@ -3436,10 +3438,11 @@ if(TARGET orkige_player)
     # (build/macos-release-classic vs build/macos-release - see
     # siblingReleaseTree in tools/exporter/ExportBuildTree.h). The exported-app
     # contract is verified on the running tree's flavor.
-    # APPLE-gated: the export driver checks/runs .app bundles with otool -
-    # macOS host machinery (a Linux registration would hard-fail at otool).
-    # TODO(linux): a Linux export target needs its own bundle layout +
-    # driver checks in tools/exporter first.
+    # HOST-gated, because a desktop package is assembled around the HOST's own
+    # player binary and nothing cross-compiles one: the Apple block below
+    # packages .app bundles (and checks them with otool), the Linux block after
+    # it packages the portable directory. Each is registered where its
+    # artifact can actually be produced AND run.
     if(APPLE)
         # The driver (integration_driver/run_export_test.py) runs the exporter,
         # asserts the artifact's structure and self-containment, and - on macOS -
@@ -3701,6 +3704,44 @@ if(TARGET orkige_player)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(export_android_payload_run PROPERTIES
             SKIP_RETURN_CODE 77 TIMEOUT 900)
+    endif()
+
+    # the Linux desktop package: the portable directory a Linux game ships as.
+    # Registered on Linux only - the exporter refuses a desktop platform that
+    # is not the host's, and the run leg needs a machine that can execute the
+    # binary. Both render flavors register it (each linux job runs its own
+    # tree's suite), and the driver asserts what nothing else can: that the
+    # package carries no shared libraries, that no dependency resolves back
+    # into the build tree or vcpkg, and that the whole directory RUNS from a
+    # neutral cwd with a scrubbed environment.
+    if(UNIX AND NOT APPLE)
+        add_test(NAME export_linux${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_export_test.py"
+                --repo "${Orkige_SOURCE_DIR}"
+                --exporter "$<TARGET_FILE:orkige_export>"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+                --platform linux --engine-build "${CMAKE_BINARY_DIR}"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/linux-lua"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(export_linux${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            LABELS integration SKIP_RETURN_CODE 77 TIMEOUT 900)
+
+        # ...and the same project's own Lua suite run INSIDE the package - the
+        # only thing that answers "does the game that SHIPS still work". A
+        # Linux package is a directory, which is exactly why the runner can
+        # discover a suite in it (@see testRunPlatformRefusal).
+        add_test(NAME export_linux_tests${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_export_tests.py"
+                --repo "${Orkige_SOURCE_DIR}"
+                --exporter "$<TARGET_FILE:orkige_export>"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+                --platform linux --engine-build "${CMAKE_BINARY_DIR}"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/linux-tests"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(export_linux_tests${ORKIGE_FLAVOR_TEST_SUFFIX}
+            PROPERTIES LABELS integration SKIP_RETURN_CODE 77 TIMEOUT 900)
     endif()
 
     # the HTTP client on a REAL mobile runtime. The desktop suite proves the

@@ -11,6 +11,7 @@
 #include "ExportAndroid.h"
 #include "ExportFiles.h"
 #include "ExportIos.h"
+#include "ExportLinux.h"
 #include "ExportMacos.h"
 #include "ExportWeb.h"
 
@@ -35,15 +36,58 @@ namespace OrkigeExport
 	//---------------------------------------------------------
 	bool isPackagedPlatform(String const & platform)
 	{
-		return platform == "macos" || platform == "ios-simulator" ||
+		return platform == "macos" || platform == "linux" ||
+			platform == "ios-simulator" ||
 			platform == "ios" || platform == "ios-ipa" ||
 			platform == "android" || platform == "android-aab" ||
 			platform == "web";
 	}
 	//---------------------------------------------------------
+	bool isDesktopPlatform(String const & platform)
+	{
+		return platform == "macos" || platform == "linux";
+	}
+	//---------------------------------------------------------
+	String hostDesktopPlatform()
+	{
+#if defined(__APPLE__)
+		return "macos";
+#elif defined(__linux__)
+		return "linux";
+#else
+		// the honest answer where the exporter has no desktop target for its
+		// own host yet, rather than a guess that would package the wrong
+		// operating system's binary
+		return String();
+#endif
+	}
+	//---------------------------------------------------------
+	String desktopHostRefusal(String const & platform, String const & hostDesktop)
+	{
+		if(!isDesktopPlatform(platform) || platform == hostDesktop)
+		{
+			return String();
+		}
+		const String label = (platform == "macos") ? "macOS" : "Linux";
+		if(hostDesktop.empty())
+		{
+			return "a " + label + " package is assembled around the " + label +
+				" player, and this exporter runs on an operating system it "
+				"packages no desktop app for - export from a machine running " +
+				label;
+		}
+		const String hostLabel = (hostDesktop == "macos") ? "macOS" : "Linux";
+		return "a " + label + " package is assembled around the " + label +
+			" player, and this exporter runs on " + hostLabel + " - nothing "
+			"here cross-compiles a player for another operating system. Export "
+			"for " + hostLabel + ", or run the export on a " + label +
+			" machine";
+	}
+	//---------------------------------------------------------
 	String testRunPlatformRefusal(String const & platform)
 	{
-		if(platform == "macos" || platform == "ios-simulator" ||
+		if(platform == "macos" || platform == "linux" ||
+			platform == "ios-simulator" ||
 			platform == "ios" || platform == "ios-ipa")
 		{
 			return String();
@@ -100,6 +144,16 @@ namespace OrkigeExport
 			return refuse(error, "'" + request.platform + "' is not a platform "
 				"this exporter packages yet");
 		}
+		// a desktop package ships the HOST's own player binary; refuse before
+		// anything is written rather than produce a directory that cannot run
+		{
+			const String hostRefusal = desktopHostRefusal(request.platform,
+				hostDesktopPlatform());
+			if(!hostRefusal.empty())
+			{
+				return refuse(error, hostRefusal);
+			}
+		}
 		if(request.withTests)
 		{
 			const String refusal = testRunPlatformRefusal(request.platform);
@@ -134,7 +188,8 @@ namespace OrkigeExport
 			// project whose app IS its module never needs a player.
 			const bool moduleIsTheApp = !project.nativeTarget().empty() &&
 				!request.source.sdkPack.empty();
-			if(request.platform != "macos" && request.platform != "web" &&
+			if(!isDesktopPlatform(request.platform) &&
+				request.platform != "web" &&
 				request.source.devicePayload.empty() && !moduleIsTheApp)
 			{
 				return refuse(error, "a staged engine payload packages the "
@@ -278,6 +333,11 @@ namespace OrkigeExport
 		if(request.platform == "macos")
 		{
 			packaged = exportMacos(project, source, outputDirectory,
+				environment, tests, artifact, error);
+		}
+		else if(request.platform == "linux")
+		{
+			packaged = exportLinux(project, source, outputDirectory,
 				environment, tests, artifact, error);
 		}
 		else if(request.platform == "ios-simulator" ||
