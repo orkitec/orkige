@@ -28,10 +28,13 @@ classes (sRGB/gamma mismatches shift EVERYTHING by dozens of levels, missing
 content flips whole regions).
 
 Two numbers cannot say WHERE a pair disagrees, so every pair also reports the
-largest 8-connected region of differing pixels (parity_diff), and a pair that
-fails leaves a DIFF IMAGE beside the compared shot - `<shot>.diff.png`, the
-delta painted over the frame it belongs to. The region size is reported, not
-gated: see parity_diff for why.
+largest 8-connected region of differing pixels (parity_diff), and any pair
+with at least one pixel over the outlier threshold leaves a DIFF IMAGE beside
+the compared shot - `<shot>.diff.png`, the delta painted over the frame it
+belongs to - ON GREEN AS WELL AS RED: a verdict inside its corridor can sit
+over a real region of strongly differing pixels, and the picture is how such
+a region gets looked at instead of discovered later. The region size is
+reported, not gated: see parity_diff for why.
 
 Pure stdlib (zlib PNG decode - the screenshots are 8-bit RGB/RGBA PNGs).
 """
@@ -185,11 +188,14 @@ def compare_pair(classic_path, next_path, diff_dir=None):
                f"{OUTLIER_FRACTION * 100.0:.0f}% (>{OUTLIER_TOLERANCE}); "
                + parity_diff.describe(spatial, pixel_count, OUTLIER_TOLERANCE))
     destination = parity_diff.diff_path(next_path, diff_dir)
-    if ok:
+    if outliers == 0:
         parity_diff.drop_stale_diff(destination)
     else:
-        # the failure travels with its picture: the delta over the classic
-        # frame, beside the shot, inside whatever the job uploads
+        # the picture travels whenever there is structure to look at, ON
+        # GREEN TOO: a verdict inside its corridor can still sit over a
+        # region of strongly differing pixels, and the numbers alone cannot
+        # show what that region is. A pair with no pixel over the threshold
+        # writes nothing - a heat map of zeros is noise
         written = parity_diff.try_write_diff(destination, dmap, classic)
         if written:
             summary += f"; diff image {written}"
@@ -398,12 +404,19 @@ def main(argv=None):
 
 # --- selftest ---------------------------------------------------------------
 
-def write_png(path, width, height, fill):
-    """Write a minimal 8-bit RGB PNG of one colour (selftest fixture)."""
+def write_png(path, width, height, fill, poke=None):
+    """Write a minimal 8-bit RGB PNG of one colour (selftest fixture).
+
+    poke=(x, y, colour) recolours a single pixel - the smallest possible
+    "structure" for the on-green diff-image case.
+    """
     raw = bytearray()
-    for _row in range(height):
+    for row in range(height):
         raw.append(0)                       # filter type None
         raw.extend(bytes(fill) * width)
+        if poke is not None and poke[1] == row:
+            base = len(raw) - (width - poke[0]) * 3
+            raw[base:base + 3] = bytes(poke[2])
     def chunk(kind, payload):
         return (struct.pack(">I", len(payload)) + kind + payload +
                 struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF))
@@ -415,10 +428,11 @@ def write_png(path, width, height, fill):
         handle.write(chunk(b"IEND", b""))
 
 
-def write_shots_dir(directory, fill, logical=(960, 540), pixel=(960, 540)):
+def write_shots_dir(directory, fill, logical=(960, 540), pixel=(960, 540),
+                    poke=None):
     os.makedirs(directory, exist_ok=True)
     for shot in COMPARED_SHOTS:
-        write_png(os.path.join(directory, shot), 8, 8, fill)
+        write_png(os.path.join(directory, shot), 8, 8, fill, poke)
     with open(os.path.join(directory, "dimensions.txt"), "w") as handle:
         handle.write("logical %d %d\npixel %d %d\n"
                      % (logical[0], logical[1], pixel[0], pixel[1]))
@@ -460,6 +474,21 @@ def selftest():
     diff_image = os.path.join(nxt, COMPARED_SHOTS[0].replace(".png",
                                                              ".diff.png"))
     assert not os.path.exists(diff_image), "a clean pair wrote a diff image"
+
+    # a GREEN pair with structure - one pixel over the threshold, well
+    # inside the outlier fraction - leaves its picture behind: the on-green
+    # diff is what lets a passing-but-real region be looked at
+    write_shots_dir(nxt, (40, 80, 120), poke=(3, 3, (250, 80, 120)))
+    code, said = run_quiet(["--classic-shots", classic, "--next-shots", nxt])
+    assert code == 0, said
+    assert "largest region 1px" in said, said
+    assert os.path.exists(diff_image), "a green pair with structure wrote " \
+        "no diff image"
+    # and a later clean run drops the stale picture
+    write_shots_dir(nxt, (40, 80, 120))
+    code, said = run_quiet(["--classic-shots", classic, "--next-shots", nxt])
+    assert code == 0, said
+    assert not os.path.exists(diff_image), "a clean re-run kept a stale diff"
 
     # a difference beyond tolerance is caught, names the region it found and
     # leaves the picture behind - the whole 8x8 fixture is one region

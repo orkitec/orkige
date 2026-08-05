@@ -32,7 +32,8 @@ hold both flavors:
 
 A region mean says THAT two frames disagree, never where, so every comparison
 also reports the largest 8-connected region of differing pixels across the
-whole frame (parity_diff), and a failing comparison leaves a DIFF IMAGE beside
+whole frame (parity_diff), and any comparison with structure over the
+threshold - green or red - leaves a DIFF IMAGE beside
 the next capture - `next.diff.png`, the delta painted over the scene. The
 region size is reported, not gated: see parity_diff for why.
 
@@ -310,11 +311,23 @@ def compare_captures(img_next, img_classic, scene, kept_in,
 
     destination = parity_diff.diff_path(
         shot_next or os.path.join(kept_in, "next.png"), diff_dir)
+    # the picture is written whenever there is structure, ON GREEN TOO: the
+    # probe verdicts can all sit inside their corridors while the whole-frame
+    # report above names a large differing region, and the diff image is how
+    # that region gets LOOKED AT instead of discovered later. A frame with no
+    # pixel over the threshold writes nothing
+    if spatial.over:
+        written = parity_diff.try_write_diff(destination, dmap, img_classic)
+        if written:
+            print(f"crossflavor_parity: diff image {written}")
+    else:
+        parity_diff.drop_stale_diff(destination)
 
     def fail_with_diff(message):
-        """Refuse, leaving the picture that explains the refusal behind."""
-        written = parity_diff.try_write_diff(destination, dmap, img_classic)
-        fail(message + (f" - diff image {written}" if written else ""))
+        """Refuse; the picture that explains the refusal is already beside
+        the capture (written above for any frame with structure)."""
+        fail(message + (f" - diff image {destination}"
+                        if os.path.exists(destination) else ""))
 
     def sx(fraction):
         return int(width * fraction)
