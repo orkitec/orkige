@@ -141,18 +141,12 @@ recorded reason why it reaches no shipped artifact. A build-time-only component
 (the test framework, a header registry) needs no attribution in a distributed
 notice, and saying so explicitly is what keeps the file's silence meaningful.
 
-The one fact about that document worth knowing without reading it: **nothing in
-the shipped closure is copyleft.** Every component that offers a copyleft
-license offers a permissive one beside it, and the permissive one is what is
-taken, so no artifact carries a relinking or source-availability obligation —
-only attribution.
+One entry in that document is worth knowing without reading it:
 
-Two decisions keep it that way, and both are load-bearing. The audio backend is
-miniaudio, a single-file library under `Unlicense OR MIT-0`. And the render
-backends read images through decode-only codecs and encode their own PNG output
-(`core_util/PngWriter`), so no image library enters the closure on any
-platform — which is what keeps the whole FreeImage codec family, LibRaw
-included, out of every build.
+- **LibRaw (LGPL-2.1 or CDDL-1.0) and FreeImage (GPL-2.0, GPL-3.0 or the
+  FreeImage Public License)** reach the desktop editor and desktop player
+  through the default render backend's image codec. Both are absent from the
+  mobile and browser builds, and the classic flavor links neither.
 
 ## GitHub Actions are SHA-pinned
 

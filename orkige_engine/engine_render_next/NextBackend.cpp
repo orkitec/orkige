@@ -17,7 +17,6 @@
 #include "engine_render_next/NextBackend.h"
 #include "engine_render/RenderSystemSelection.h"	// the deviceless boot word
 #include "engine_render/RenderMaterialCache.h"	// the create-or-update memo
-#include <core_util/PngWriter.h>	// THE image encode: the engine owns it
 #include <core_util/SkyEnvMap.h>
 #include <core_util/PlanarReflectionGuard.h>
 #include <core_debug/Breadcrumbs.h>	// crash-survivable trail at the mid-run mirror init points
@@ -1896,7 +1895,7 @@ namespace Orkige
 					{
 						Ogre::Image2 image;
 						image.convertFromTexture(mirror, 0u, 0u);
-						saveImageAsPng(image, dumpPath);
+						image.save(dumpPath, 0u, 1u);
 					}
 					catch(Ogre::Exception const &)
 					{
@@ -4913,89 +4912,6 @@ namespace Orkige
 				}
 			}
 		}
-	}
-	//---------------------------------------------------------
-	bool RenderBackend::saveImageAsPng(Ogre::Image2 & image,
-		String const & fileName)
-	{
-		if(image.getNumMipmaps() == 0u || image.getWidth() == 0u ||
-			image.getHeight() == 0u)
-		{
-			Ogre::LogManager::getSingleton().logMessage(
-				"Orkige next backend: cannot write '" + fileName +
-				"' - the readback image is empty");
-			return false;
-		}
-		makeImageAlphaOpaque(image);
-
-		const Ogre::TextureBox source = image.getData(0u);
-		if(!source.data || source.depth != 1u || source.numSlices != 1u)
-		{
-			Ogre::LogManager::getSingleton().logMessage(
-				"Orkige next backend: cannot write '" + fileName +
-				"' - a PNG carries ONE 2D image, and this readback is not one");
-			return false;
-		}
-
-		// an sRGB format describes how a SAMPLER reads the bytes, not the
-		// bytes themselves. A screenshot is the framebuffer as it stands, so
-		// the conversion below reorders channels and never rewrites values -
-		// asking for a gamma step here would move every pixel the parity
-		// gates compare
-		Ogre::PixelFormatGpu sourceFormat = image.getPixelFormat();
-		if(Ogre::PixelFormatGpuUtils::isSRgb(sourceFormat))
-		{
-			sourceFormat =
-				Ogre::PixelFormatGpuUtils::getEquivalentLinear(sourceFormat);
-		}
-
-		std::vector<unsigned char> converted;
-		unsigned char const * pixels = NULL;
-		int strideBytes = 0;
-		if(sourceFormat == Ogre::PFG_RGBA8_UNORM)
-		{
-			// already the encoder's layout: hand the readback rows over as
-			// they lie. A GPU row is PADDED to an alignment, which is why the
-			// stride travels with the pointer instead of being recomputed
-			pixels = reinterpret_cast<unsigned char const *>(source.data);
-			strideBytes = static_cast<int>(source.bytesPerRow);
-		}
-		else
-		{
-			const std::size_t packedRow =
-				static_cast<std::size_t>(source.width) * 4u;
-			const std::size_t packedImage =
-				packedRow * static_cast<std::size_t>(source.height);
-			converted.resize(packedImage);
-			Ogre::TextureBox destination(source.width, source.height, 1u, 1u,
-				4u, static_cast<Ogre::uint32>(packedRow), packedImage);
-			destination.data = converted.data();
-			try
-			{
-				Ogre::PixelFormatGpuUtils::bulkPixelConversion(source,
-					sourceFormat, destination, Ogre::PFG_RGBA8_UNORM);
-			}
-			catch(Ogre::Exception const & e)
-			{
-				Ogre::LogManager::getSingleton().logMessage(
-					"Orkige next backend: cannot write '" + fileName +
-					"' - the readback format does not convert to RGBA8: " +
-					e.getDescription());
-				return false;
-			}
-			pixels = converted.data();
-			strideBytes = static_cast<int>(packedRow);
-		}
-
-		if(!PngWriter::writeFile(fileName, pixels,
-			static_cast<int>(source.width),
-			static_cast<int>(source.height), strideBytes))
-		{
-			Ogre::LogManager::getSingleton().logMessage(
-				"Orkige next backend: writing '" + fileName + "' failed");
-			return false;
-		}
-		return true;
 	}
 	//---------------------------------------------------------
 	void RenderBackend::notImplementedOnce(char const * feature)

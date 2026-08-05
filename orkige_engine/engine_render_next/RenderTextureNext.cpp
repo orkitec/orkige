@@ -392,7 +392,8 @@ namespace Orkige
 		oAssert(this->mImpl->texture);
 		Ogre::Image2 image;
 		image.convertFromTexture(this->mImpl->texture, 0u, 0u);
-		RenderBackend::saveImageAsPng(image, fileName);
+		RenderBackend::makeImageAlphaOpaque(image);
+		image.save(fileName, 0u, 1u);
 	}
 	//---------------------------------------------------------
 	optr<DrawLayer2D> RenderTexture::createLayer(int zOrder)

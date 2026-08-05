@@ -82,17 +82,9 @@ namespace Orkige
 
 	//---------------------------------------------------------
 	bool PngWriter::encode(unsigned char const * rgba, int width, int height,
-		std::vector<unsigned char> & out, int strideBytes)
+		std::vector<unsigned char> & out)
 	{
 		if (!rgba || width <= 0 || height <= 0)
-		{
-			return false;
-		}
-		// rows are tightly packed unless the caller describes padding, and a
-		// stride narrower than one row cannot describe any buffer
-		const int packedRow = width * 4;
-		const int stride = (strideBytes > 0) ? strideBytes : packedRow;
-		if (stride < packedRow)
 		{
 			return false;
 		}
@@ -112,17 +104,15 @@ namespace Orkige
 		ihdr.push_back(0);		// interlace: none
 		putChunk(out, "IHDR", ihdr);
 
-		// raw image data: each scanline prefixed with a filter byte (0 = None).
-		// The PNG carries tightly packed rows whatever the source stride is,
-		// so any padding is dropped here rather than encoded as pixels
-		const std::size_t rowBytes = static_cast<std::size_t>(packedRow);
+		// raw image data: each scanline prefixed with a filter byte (0 = None)
+		const std::size_t rowBytes = static_cast<std::size_t>(width) * 4;
 		std::vector<unsigned char> raw;
 		raw.reserve((rowBytes + 1) * static_cast<std::size_t>(height));
 		for (int y = 0; y < height; ++y)
 		{
 			raw.push_back(0);	// None filter
 			unsigned char const * row = rgba +
-				static_cast<std::size_t>(y) * static_cast<std::size_t>(stride);
+				static_cast<std::size_t>(y) * rowBytes;
 			raw.insert(raw.end(), row, row + rowBytes);
 		}
 
@@ -170,10 +160,10 @@ namespace Orkige
 
 	//---------------------------------------------------------
 	bool PngWriter::writeFile(String const & path, unsigned char const * rgba,
-		int width, int height, int strideBytes)
+		int width, int height)
 	{
 		std::vector<unsigned char> bytes;
-		if (!encode(rgba, width, height, bytes, strideBytes))
+		if (!encode(rgba, width, height, bytes))
 		{
 			return false;
 		}

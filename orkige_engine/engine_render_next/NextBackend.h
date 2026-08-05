@@ -1126,17 +1126,6 @@ namespace Orkige
 		//! render targets carry alpha as a rendering byproduct (content
 		//! legally writes 0), classic screenshots are opaque - parity
 		static void makeImageAlphaOpaque(Ogre::Image2 & image);
-		//! @brief write mip 0 of a readback image to @p fileName as a PNG.
-		//! THE image-write of this backend: the engine owns the encode
-		//! (core_util/PngWriter) rather than reaching for an image library,
-		//! so the closure carries no encoder. @p image is brought to
-		//! straight top-down RGBA8 first - an sRGB format is treated as its
-		//! linear twin, because a screenshot is the framebuffer's bytes and
-		//! not a colour to reinterpret - and its alpha is forced opaque
-		//! (@see makeImageAlphaOpaque). @return false, with a named log line,
-		//! when the image is empty, carries more than one 2D slice, does not
-		//! convert to RGBA8, or cannot be written.
-		static bool saveImageAsPng(Ogre::Image2 & image, String const & fileName);
 		//! honest-gap discipline: log the missing feature ONCE, stay
 		//! silent afterwards - callers then return their safe default
 		static void notImplementedOnce(char const * feature);

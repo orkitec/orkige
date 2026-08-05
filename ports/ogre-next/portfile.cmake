@@ -26,7 +26,7 @@ vcpkg_from_github(
         apple-ninja-objcxx-sysroot.patch          # enable OBJC/OBJCXX for the .mm sources + do not clobber the iOS "iphoneos" CMAKE_OSX_SYSROOT with a symbolic name under single-config generators (the macOS block gained an upstream NOT-CMAKE_OSX_SYSROOT guard; the iOS block still needs this)
         vulkan-no-shaderc-probe.patch             # the Vulkan RS compiles GLSL via glslang only - stop the find-probe from requiring shaderc_combined (absent from vcpkg and the NDK), which silently disabled the whole RS
         lib-install-path.patch                    # iOS + Windows: keep the standard vcpkg bin/lib layout (upstream installs into per-config lib/Release-style subdirs there, plugins under /opt on Windows)
-        freeimage-codec-gate-unity-list.patch     # the unity SEPARATE list is appended to OgreMain's sources whether or not unity builds are on, so it force-compiles OgreFreeImageCodec2.cpp even with the codec disabled - fatal on every platform, none of which installs FreeImage
+        freeimage-codec-gate-unity-list.patch     # the unity SEPARATE list force-compiles OgreFreeImageCodec2.cpp into OgreMain even with the codec disabled - fatal on the FreeImage-less mobile platforms
         pbs-honour-non-srgb-target.patch          # HlmsPbs assumed an sRGB colour target unconditionally (hw_gamma_write hardcoded 1); derive it from the live pass descriptor so linear lighting gamma-encodes in-shader on UNORM swapchains (upstream candidate)
 )
 
@@ -87,17 +87,22 @@ else()
     )
 endif()
 
-# Image codecs, one setting on every platform: the in-tree STBI codec reads the
-# formats an engine asset actually arrives in (png, jpg, tga, bmp, ...), and it
-# is decode-only. Writing an image is the engine's own job - the render backend
-# encodes a readback through core_util/PngWriter (@see
-# RenderBackend::saveImageAsPng) - so no codec here has to encode, and the
-# FreeImage closure (LibRaw, OpenEXR, LibTIFF, JasPer and the rest) stays out of
-# every build.
-set(CODEC_OPTIONS
-    -DOGRE_CONFIG_ENABLE_FREEIMAGE=OFF
-    -DOGRE_CONFIG_ENABLE_STBI=ON
-)
+# Image codecs per platform: FreeImage on desktop (loads png/jpg AND encodes -
+# screenshots need an encoder). Mobile drops the FreeImage dependency entirely
+# and uses the in-tree STBI codec (decode-only, which is all device asset
+# loading needs) - matching the classic mobile flavor.
+if(VCPKG_TARGET_IS_IOS OR VCPKG_TARGET_IS_ANDROID)
+    set(CODEC_OPTIONS
+        -DOGRE_CONFIG_ENABLE_FREEIMAGE=OFF
+        -DOGRE_CONFIG_ENABLE_STBI=ON
+    )
+else()
+    set(CODEC_OPTIONS
+        -DOGRE_CONFIG_ENABLE_FREEIMAGE=ON
+        -DOGRE_CONFIG_ENABLE_STBI=OFF
+        -DCMAKE_REQUIRE_FIND_PACKAGE_FreeImage=ON
+    )
+endif()
 
 # ogre-next resolves zlib through its own FindPkgMacros-based finder, which
 # searches Unix library names and misses vcpkg's Windows archives

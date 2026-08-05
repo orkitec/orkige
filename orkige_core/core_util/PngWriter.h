@@ -32,20 +32,16 @@ namespace Orkige
 	class PngWriter
 	{
 	public:
-		//! @brief encode a straight-RGBA8 buffer (row-major, R,G,B,A, top-down
-		//! - the VectorShapeRaster layout) into a PNG byte stream appended to
-		//! out. @param strideBytes the distance between two row starts; 0 (the
-		//! default) means the rows are tightly packed at width*4. A GPU
-		//! readback hands back PADDED rows, so the stride is part of the
-		//! buffer's description and guessing it shears the image. @return false
-		//! on a non-positive dimension, a null buffer, or a stride narrower
-		//! than one row (out untouched).
+		//! @brief encode a straight-RGBA8 buffer (row-major, width*4 bytes per
+		//! row, R,G,B,A, top-down - the VectorShapeRaster layout) into a PNG
+		//! byte stream appended to out. @return false on a non-positive
+		//! dimension or a null buffer (out untouched).
 		static bool encode(unsigned char const * rgba, int width, int height,
-			std::vector<unsigned char> & out, int strideBytes = 0);
+			std::vector<unsigned char> & out);
 		//! @brief encode and write the PNG to path (binary). @return false on
-		//! bad arguments or a write failure. @see encode for strideBytes.
+		//! bad arguments or a write failure.
 		static bool writeFile(String const & path, unsigned char const * rgba,
-			int width, int height, int strideBytes = 0);
+			int width, int height);
 	};
 }
 

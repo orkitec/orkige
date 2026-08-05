@@ -701,10 +701,9 @@ browser are not there yet).
   with the BINARY, so `stageThirdPartyNotices` is a step of every platform's
   packaging and the `export_*` suite asserts the file in each artifact. A new
   dependency has to be answered in that file — `third_party_notices_lint`
-  fails otherwise. `Docs/vendored-libs.md` has the tier table and the licence
-  facts; nothing in the shipped closure is copyleft, which holds because the
-  audio backend is miniaudio and because the render backends encode their own
-  PNG output instead of linking an image library.
+  fails otherwise. `Docs/vendored-libs.md` has the tier table and the copyleft
+  entries (LibRaw and FreeImage, both reached through the default flavor's
+  desktop image codec and absent from the mobile and browser builds).
 
 - **The SDK pack is never a prerequisite for a project with no C++.** A Lua
   game has nothing to compile: it needs the platform's player (fetched, for a

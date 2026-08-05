@@ -6,6 +6,10 @@
   "license": "MIT",
   "supports": "(osx & arm64) | (linux & x64) | (windows & x64 & !uwp) | (ios & arm64) | (android & (arm64 | x64))",
   "dependencies": [
+    {
+      "name": "freeimage",
+      "platform": "!ios & !android"
+    },
     "rapidjson",
     "zlib",
     {
