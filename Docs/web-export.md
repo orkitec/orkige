@@ -69,8 +69,11 @@ so let SwiftShader render shadows too) is an OGRE-port change tracked separately
 The *requested* GL tier itself is code-confirmed; a runtime **tier-assertion
 test is still a TODO** (read the GL context version from the boot log or the
 caps bitset over the debug protocol) to confirm delivery and catch a
-regression — the boot suite today checks only boot + clean shutdown + a
-non-uniform screenshot.
+regression. What the suite does hold the tier to meanwhile is its OUTPUT: the
+boot test checks boot + clean shutdown + a non-uniform screenshot, the water
+and bloom tests require their GLES3-gated features to answer supported and
+render, and the parity gate below compares the browser's frames against the
+desktop classic player's frames of the same scenes.
 
 One preset builds the whole runtime; one exporter platform packages any
 Lua/scene project as a static directory every web server can host as-is.
@@ -226,6 +229,98 @@ the page's status line. `tests/web/run_export_web.py` uses exactly these:
 headless Chrome/Chromium (boot marker → clean shutdown → a mid-run screenshot
 that must contain an actual scene, pixel-checked). The boot test SKIPs (77)
 on machines without a headless browser (`ORKIGE_CHROME` overrides discovery).
+
+## Render parity with the desktop
+
+The browser must render what the desktop renders. That is one gate, on one
+seam: **the browser's frames against the DESKTOP CLASSIC player's frames** of
+the same scene. The browser IS the classic flavor, so both sides run the same
+backend and a divergence can only come from the WebGL2/GLES3/Emscripten tier.
+
+Desktop-**next** versus the browser is the pair a RELEASE is judged on — the
+browser ships, the desktop classic flavor does not — and it is the COMPOSITION
+of two gates: this one and the cross-flavor gate
+(`run_crossflavor_parity_test.py`, next vs classic on the desktop). It is
+**measured and pictured on every commit, and deliberately not gated**:
+
+- measured, because the pair matters. `--report-only` prints every band's
+  numbers and `--pair-image` writes the two frames as ONE side-by-side picture
+  (browser left, desktop right); the `web-parity` job runs both on every commit
+  and uploads them, `if: always()`, so the pictures exist even when the gate
+  above went red.
+- not gated, because its deltas ARE the flavor seam's. The platform seam
+  contributes about nothing (below), so on the lake vignette the direct pair
+  measures sky 7, terrain 5, water 26 — and 26 is exactly what the cross-flavor
+  gate measures for that band between the two desktop flavors. A gate here
+  would either restate that at a corridor four times looser than the one on
+  this page, or block on a difference the cross-flavor gate already adjudicates
+  band by band. A corridor wide enough to hold both seams at once passes a real
+  regression in either of them and cannot say which side moved.
+
+The driver is `tests/integration_driver/run_web_parity_test.py`, the sibling of
+the cross-flavor one, sharing its diff/clustering diagnosis (`parity_diff`) and
+its refusals. What it pins, and why each pin exists:
+
+| pinned | why |
+| --- | --- |
+| the scene (`lake`, `mirrorlake` benchmark vignettes) | the same content the cross-flavor gate compares, so the two gates' numbers compose. A page has no argv, so the browser side exports a copy of the benchmark project whose `MainScene` is the vignette under test; the desktop side boots that scene file directly |
+| 1280x720 on both sides | the browser viewport, its device scale factor and the player's `ORKIGE_WINDOW_SIZE` are one rectangle, so the canvas backing store, its CSS box and the captured page agree and nothing is scaled between the render and the comparison |
+| `benchmark.cameraOrbit=0`, `benchmark.rampBudgetMs=100000` | the deterministic capture recipe: no wall-clock camera orbit, no early vignette advance |
+| `r.shadowQuality=off` | the classic backend refuses the shadow pass on a software WebGL rasterizer (above), which is what a GPU-less CI browser always gets and a developer's browser never does. Unpinned, the compared image would depend on the machine rather than on the code |
+
+The textures need no pin: the export cook's auto table ships the SOURCE image
+on `web` (no compressed format is guaranteed in a browser), so both sides
+sample the same bytes and no lossy cook sits inside the comparison.
+
+**Simulated time is already pinned by the engine**: an automated run advances
+the world by the fixed `AppHost::AUTOMATED_FRAME_DELTA` tick, so frame N is the
+same instant on a fast host and a slow one. The desktop capture is frame-pinned
+(the frame-60 framebuffer dump). The browser capture is not — a page carries no
+frame counter to wait on, and the canvas composites black the moment the run
+exits, so the frame is taken from a live page after a settle. What that costs
+is measured rather than assumed: two browser frames of the same run, one settle
+apart, differ by at most 1.1 levels per band on the lake vignette and 7.9 on the
+mirror-ripple band, and the corridors carry that share.
+
+Both roads to the verdict exist, as for every parity gate:
+
+    # one machine holding a wasm tree, the host classic tree and a browser
+    python3 tests/integration_driver/run_web_parity_test.py \
+        --repo . --engine-build build/web-release \
+        --player-classic build/macos-debug-classic/tools/player/orkige_player \
+        --dir /tmp/webparity --scene scenes/lake.oscene
+
+    # or capture each side where it can be captured, and compare the frames
+    ... --capture web --engine-build build/web-release --dir shots/web
+    ... --capture desktop --player-classic <player> --dir shots/desktop
+    ... --compare-shots --shot-web shots/web/web.png \
+                        --shot-desktop shots/desktop/desktop.png
+
+The second road is what makes it a CI gate. The `web` job's ctests
+(`web_parity_capture_lake`, `web_parity_capture_mirrorlake`) take the browser
+frames and assert each is a real render at the pinned rectangle; the
+`linux-classic` job captures the desktop frames with the same recipe — and
+`linux-next` captures its own with that recipe too, for the reported release
+pair; the `web-parity` job downloads all three and compares. **A missing or
+empty capture FAILS** — a parity gate that compared nothing must never report
+parity, and `--report-only` withholds the corridor verdict alone, never those
+refusals. The artifact `web-parity-captures` carries every frame, the diff
+images and `pairs/` — the side-by-side pictures, `<scene>_browser_vs_classic`
+and `<scene>_browser_vs_next`.
+
+Corridors are measured, and tight because the measurement allowed it: the
+browser and the desktop agree to 0-3 levels per band, so the corridors sit at
+12 (20 on the mirror-ripple band) rather than the 20-55 the cross-flavor gate
+needs for genuinely different backends. The browser's own rasterizer turns out
+not to matter at band level — the same page captured through a GPU-backed
+WebGL context and through forced SwiftShader agrees to 0 — which is why this
+gate pins the viewport and the cvars but not the rasterizer. Every number the
+comparison uses is printed on every run, green ones included, so a corridor is
+only ever moved with a fresh measurement written beside it.
+
+What the gate does NOT cover, by construction: dynamic shadows (pinned off,
+because CI's browser cannot render them at all), and any scene the browser
+cannot boot in the time a capture allows.
 
 ## Play in Browser (the editor)
 

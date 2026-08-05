@@ -154,6 +154,20 @@ add_test(NAME crossflavor_parity_driver_selftest
 set_tests_properties(crossflavor_parity_driver_selftest PROPERTIES
     LABELS unit TIMEOUT 60)
 
+# the browser parity driver's pure parts: the region comparison and its
+# corridors, the refusals that keep a missing/blank/unreadable frame from
+# reading as parity, the browser-capture assertions (right rectangle, an
+# actual scene) and the manifest rewrite that points a browser export at the
+# scene under test. No browser, no wasm tree, no export - those roads are the
+# web tree's ctests and the CI parity job.
+add_test(NAME web_parity_driver_selftest
+    COMMAND python3
+        "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_web_parity_test.py"
+        --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(web_parity_driver_selftest PROPERTIES
+    LABELS unit TIMEOUT 120)
+
 # sprite-atlas packer self-validation: make_sprite_atlas.py packs a
 # handful of synthetic sprites, re-parses its own .oatlas and asserts no region
 # overlaps, all rects in bounds, deterministic order. Stdlib-only, headless -

@@ -34,6 +34,13 @@ The measurements the second road needs travel with the screenshots — the
 selfcheck writes `dimensions.txt` (the window density both flavors must agree
 on) and `grade_metrics.txt` (the same metrics line it prints) beside them.
 
+The **browser** is one seam further out and gets its own driver on the same two
+roads: the wasm player renders the classic flavor, so `run_web_parity_test.py`
+compares its frames against the DESKTOP CLASSIC player's frames of the same
+scenes (the `web-parity` CI job). Same flavor on both sides, so a divergence
+names the WebGL/GLES3 tier alone; desktop-next versus the browser is that gate
+composed with the cross-flavor one — `Docs/web-export.md`.
+
 **Reading a parity failure.** A mean and an outlier fraction say that two
 frames differ, never where, so both pixel drivers add two things from
 `tests/integration_driver/parity_diff.py`. Every run — green included — prints
