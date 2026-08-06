@@ -48,17 +48,21 @@ namespace Orkige
 		//! flavor's gAtmosphere - one world per process.
 		Ogre::SceneNode* gSkyDomeNode = NULL;
 
-		//! sRGB-encode one linear channel: the next flavor renders the sky model
-		//! into an sRGB swapchain (hardware-encoded), while this classic pipeline
-		//! displays values RAW - so every sky-model colour must be encoded here
-		//! for the two flavors to display the same picture (the standard
-		//! piecewise sRGB transfer, matching the hardware encode)
+		//! display-encode one linear channel of the sky model. NEITHER flavor
+		//! has a hardware sRGB conversion anywhere - both render into a
+		//! non-sRGB swapchain and encode once in the shader - and the
+		//! engine-wide display transfer is sqrt() (@see MetalRoughLightingSrs.h,
+		//! which appends that same sqrt at the post-process stage, and the
+		//! ambient mapping below, which already squares to invert it). The sky
+		//! model's CPU-evaluated colours must ride the SAME transfer as the
+		//! rest of the picture: encoding them with the sRGB curve (effective
+		//! exponent ~2.2) where everything else uses sqrt (2.0) leaves the
+		//! classic sky lighter than the other flavor's by exactly that
+		//! exponent ratio.
 		inline float toDisplayGamma(float v)
 		{
 			v = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
-			return v <= 0.0031308f
-				? v * 12.92f
-				: 1.055f * std::pow(v, 1.0f / 2.4f) - 0.055f;
+			return std::sqrt(v);
 		}
 		//! the sky colour for a unit view direction: the ONE shared sky model
 		//! (SkyEnvMap::skyColour - the CPU port of the next flavor's native sky
@@ -1095,7 +1099,8 @@ namespace Orkige
 		{
 			if(!system->isWindowUIOnly())
 			{
-				if(desc.enabled && desc.sky)
+				if(desc.enabled && desc.sky &&
+					desc.skyType == AtmosphereSky::ST_PROCEDURAL)
 				{
 					const Ogre::Vector3 toSun = resolveSunDirection();
 					const SkyEnvMap::Colour horizon = SkyEnvMap::skyColour(
@@ -1106,9 +1111,16 @@ namespace Orkige
 				}
 				else
 				{
-					// disabled, OR the `sky` part switch hid the dome: the flat raw
-					// tint clear (no dome draws over it, so the evaluated horizon
-					// would be a stale sky colour behind hidden geometry)
+					// the flat raw tint clear. Three cases reach it and all three
+					// want the AUTHORED tint, not an evaluated sky colour:
+					// disabled; the `sky` part switch hid the dome; or a sky TYPE
+					// that draws no procedural dome - ST_COLOUR, whose whole
+					// contract is "flat clear in the sky tint" (@see
+					// AtmosphereSky), and ST_SKYBOX, whose cubemap covers the
+					// clear entirely and whose textureless degrade is documented
+					// as "rendering the flat sky colour" below. Evaluating the
+					// horizon for those would clear to a sky colour no dome ever
+					// draws.
 					system->setWindowBackgroundColour(
 						Color(desc.skyRed, desc.skyGreen, desc.skyBlue));
 				}
