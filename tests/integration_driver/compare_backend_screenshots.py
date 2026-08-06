@@ -339,9 +339,9 @@ FEATURE_SHOTS = {
         6.0, 0.02, 6.0, True,
         "mean 0.00, outliers 0.00%, region 0.0"),
     "selfcheck_grade_on.png": ShotCorridor(
-        14.0, 0.05, 38.0, False,
-        "mean 10.68, outliers 2.63%, region centre 31.0 - the ungraded pair "
-        "above is identical, so this is the graded look alone"),
+        6.0, 0.02, 6.0, True,
+        "mean 0.00, outliers 0.00%, region 0.0 - the one display-space "
+        "grade shader on both flavors"),
 }
 
 

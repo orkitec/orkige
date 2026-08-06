@@ -5,7 +5,9 @@
 // (@see RenderBackend::recreateWindowWorkspace). The Contrast and Saturation are
 // pushed live from RenderWorld::setOutputGrade (RenderBackend::applyGradeConfig).
 // The curve is the exact core_util/GradeMath transform, matched to the classic
-// grade quad. Reuses the compositor fullscreen quad VS the bloom media ships
+// grade quad. ONE material serves every road the grade composes onto (plain,
+// bloom, refraction) because they all hand it a non-sRGB display-space source.
+// Reuses the compositor fullscreen quad VS the bloom media ships
 // (Ogre/Compositor/Quad_vs). Metal + Vulkan/GL delegates.
 //---------------------------------------------------------------------------
 
@@ -51,43 +53,6 @@ fragment_program Orkige/Grade/Apply_ps unified
 	delegate Orkige/Grade/Apply_ps_Metal
 }
 
-//---------- display-source variant (the refraction path) ----------
-// grades a non-sRGB (display-space) source with no linear<->display adapter
-fragment_program Orkige/Grade/ApplyDisplay_ps_GLSL glsl
-{
-	source GradeApplyDisplay_ps.glsl
-	default_params
-	{
-		param_named Contrast float 0.0
-		param_named Saturation float 1.0
-	}
-}
-fragment_program Orkige/Grade/ApplyDisplay_ps_VK glslvk
-{
-	source GradeApplyDisplay_ps.glsl
-	default_params
-	{
-		param_named Contrast float 0.0
-		param_named Saturation float 1.0
-	}
-}
-fragment_program Orkige/Grade/ApplyDisplay_ps_Metal metal
-{
-	source GradeApplyDisplay_ps.metal
-	shader_reflection_pair_hint Ogre/Compositor/Quad_vs
-	default_params
-	{
-		param_named Contrast float 0.0
-		param_named Saturation float 1.0
-	}
-}
-fragment_program Orkige/Grade/ApplyDisplay_ps unified
-{
-	delegate Orkige/Grade/ApplyDisplay_ps_GLSL
-	delegate Orkige/Grade/ApplyDisplay_ps_VK
-	delegate Orkige/Grade/ApplyDisplay_ps_Metal
-}
-
 //------------------------ Materials ------------------------
 material Orkige/Grade/Apply
 {
@@ -100,26 +65,6 @@ material Orkige/Grade/Apply
 			cull_hardware none
 			vertex_program_ref Ogre/Compositor/Quad_vs {}
 			fragment_program_ref Orkige/Grade/Apply_ps {}
-			texture_unit
-			{
-				tex_address_mode clamp
-				filtering none
-			}
-		}
-	}
-}
-
-material Orkige/Grade/ApplyDisplay
-{
-	technique
-	{
-		pass
-		{
-			depth_check off
-			depth_write off
-			cull_hardware none
-			vertex_program_ref Ogre/Compositor/Quad_vs {}
-			fragment_program_ref Orkige/Grade/ApplyDisplay_ps {}
 			texture_unit
 			{
 				tex_address_mode clamp

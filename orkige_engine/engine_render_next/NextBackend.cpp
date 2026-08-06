@@ -1374,8 +1374,8 @@ namespace Orkige
 		// host registers orkige_engine/media/grade/next before
 		// initialiseResourceGroups). A media-less/headless boot has none - grade
 		// then degrades to no pass (byte-identical), logged once.
-		// the primary sRGB-source material gates availability; the display-source
-		// sibling (the refraction path) ships in the same OrkigeGrade.material
+		// ONE material serves every road the grade composes onto (plain, bloom,
+		// refraction), so its presence is the whole availability question
 		gGradeMaterialsAvailable = Ogre::MaterialManager::getSingleton()
 			.getByName("Orkige/Grade/Apply").get() != NULL;
 		if(!gGradeMaterialsAvailable)
@@ -1416,22 +1416,20 @@ namespace Orkige
 			const GradeDesc desc = world->grade.sanitised();
 			Ogre::MaterialManager & materials =
 				Ogre::MaterialManager::getSingleton();
-			// both source variants share the same curve params (sRGB scene/bloom
-			// path + the display-source refraction path)
-			for(char const * name :
-				{ "Orkige/Grade/Apply", "Orkige/Grade/ApplyDisplay" })
+			// ONE grade material serves every road the grade composes onto (the
+			// plain, bloom and refraction paths all hand it a non-sRGB
+			// display-space source), so there is one place to push the curve
+			if(Ogre::MaterialPtr grade =
+				materials.getByName("Orkige/Grade/Apply"))
 			{
-				if(Ogre::MaterialPtr grade = materials.getByName(name))
-				{
-					grade->load();
-					Ogre::GpuProgramParametersSharedPtr params =
-						grade->getTechnique(0)->getPass(0)
-							->getFragmentProgramParameters();
-					params->setNamedConstant("Contrast",
-						Ogre::Real(desc.contrast));
-					params->setNamedConstant("Saturation",
-						Ogre::Real(desc.saturation));
-				}
+				grade->load();
+				Ogre::GpuProgramParametersSharedPtr params =
+					grade->getTechnique(0)->getPass(0)
+						->getFragmentProgramParameters();
+				params->setNamedConstant("Contrast",
+					Ogre::Real(desc.contrast));
+				params->setNamedConstant("Saturation",
+					Ogre::Real(desc.saturation));
 			}
 		}
 		// the window workspace inserts/drops the grade quad at BUILD time -
@@ -3157,12 +3155,12 @@ namespace Orkige
 						windowTarget->addPass(Ogre::PASS_QUAD));
 				copyPass->setAllLoadActions(Ogre::LoadAction::DontCare);
 				// grade composes onto refraction: the final resolve of the
-				// (display-space, non-sRGB) WaterRT onto the window becomes a
-				// display-source grade quad instead of a plain copy - the grade is
-				// still the LAST thing before the 2D/UI pass. Grade off -> the
+				// (display-space, non-sRGB) WaterRT onto the window becomes the
+				// grade quad instead of a plain copy - the grade is still the
+				// LAST thing before the 2D/UI pass. Grade off -> the
 				// byte-identical plain copy.
 				copyPass->mMaterialName = useGrade
-					? "Orkige/Grade/ApplyDisplay" : "Orkige/Refraction/Copy";
+					? "Orkige/Grade/Apply" : "Orkige/Refraction/Copy";
 				copyPass->addQuadTextureSource(0, "WaterRT");
 				// the GUI / 2D layers (the UI queue), un-refracted, on top - the
 				// window's own 2D batches only (the same mask the plain path uses)
@@ -3190,14 +3188,18 @@ namespace Orkige
 			const float downFactor = 1.0f /
 				static_cast<float>(std::max(tier.downsampleFactor, 1));
 			const int blurPasses = std::max(tier.blurPasses, 1);
-			// full-res sRGB scene target (so the scene encodes to display on
-			// store, like the bloom path); the grade shader samples it and
-			// applies the curve in display space (@see GradeApply_ps.glsl)
+			// full-res NON-sRGB scene target: the pipeline is a gamma-space
+			// passthrough down to the non-sRGB swapchain (the colour-parity
+			// rule), so this target carries DISPLAY-space colour and the grade
+			// quad applies the curve to it directly (@see GradeApply_ps.glsl).
+			// An sRGB target holds the same bytes through a cancelling
+			// encode-on-store / decode-on-sample pair, buying only quantisation
+			// error and a colour space the shader would have to undo.
 			Ogre::TextureDefinitionBase::TextureDefinition* sceneTex =
 				nodeDefinition->addTextureDefinition("SceneRT");
 			sceneTex->widthFactor = 1.0f;
 			sceneTex->heightFactor = 1.0f;
-			sceneTex->format = Ogre::PFG_RGBA8_UNORM_SRGB;
+			sceneTex->format = Ogre::PFG_RGBA8_UNORM;
 			nodeDefinition->addRenderTextureView("SceneRT")
 				->setForTextureDefinition("SceneRT", sceneTex);
 			if(gradeBloom)
@@ -3208,7 +3210,7 @@ namespace Orkige
 						nodeDefinition->addTextureDefinition(bloomBuf);
 					tex->widthFactor = downFactor;
 					tex->heightFactor = downFactor;
-					tex->format = Ogre::PFG_RGBA8_UNORM_SRGB;
+					tex->format = Ogre::PFG_RGBA8_UNORM;
 					tex->depthBufferId = 0;	// a blurred quad target needs no depth
 					nodeDefinition->addRenderTextureView(bloomBuf)
 						->setForTextureDefinition(bloomBuf, tex);
@@ -3220,7 +3222,7 @@ namespace Orkige
 					nodeDefinition->addTextureDefinition("PostRT");
 				postTex->widthFactor = 1.0f;
 				postTex->heightFactor = 1.0f;
-				postTex->format = Ogre::PFG_RGBA8_UNORM_SRGB;
+				postTex->format = Ogre::PFG_RGBA8_UNORM;
 				nodeDefinition->addRenderTextureView("PostRT")
 					->setForTextureDefinition("PostRT", postTex);
 			}
