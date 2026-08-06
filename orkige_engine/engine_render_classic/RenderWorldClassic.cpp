@@ -359,15 +359,13 @@ namespace Orkige
 				"    colour *= skyLightAbsorptionLightDensity.w;\n"
 				"    colour *= mieAbsorptionFinalMul.w;\n"
 				"    colour += skyLightAbsorptionLightDensity.xyz * sunDisk;\n"
-				// the CPU path's display encode (toDisplayGamma - the standard
-				// piecewise sRGB transfer), so per-pixel and vertex-fallback
-				// domes and the window clear colour stay on one encode
-				"    vec3 v = clamp(colour, 0.0, 1.0);\n"
-				"    vec3 lo = v * 12.92;\n"
-				"    vec3 hi = 1.055 * pow(max(v, vec3(0.0031308)),\n"
-				"        vec3(1.0 / 2.4)) - 0.055;\n"
+				// the CPU path's display encode (toDisplayGamma - the
+				// engine-wide sqrt transfer), so per-pixel and vertex-fallback
+				// domes and the window clear colour stay on ONE encode. This
+				// string is that function's shader twin: change both or the
+				// dome and the clear drift apart at the horizon.
 				"    fragColour =\n"
-				"        vec4(mix(hi, lo, step(v, vec3(0.0031308))), 1.0);\n"
+				"        vec4(sqrt(clamp(colour, 0.0, 1.0)), 1.0);\n"
 				"}\n"));
 			fs->load();
 		}
