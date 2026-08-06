@@ -23,8 +23,9 @@
 //! v2 mesh named exactly like the resource, so MeshInstance creation is
 //! one createItem call. Materials: one HLMS PBS datablock per sub-mesh
 //! ("<mesh>/mat<i>", idempotent) carrying the assimp diffuse/base
-//! colour and diffuse texture - glb-embedded textures are decoded from
-//! memory, external references resolve through the resource groups.
+//! colour, the metal-rough factors and the diffuse texture -
+//! glb-embedded textures are decoded from memory, external references
+//! resolve through the resource groups.
 //! Assimp generates smooth normals (PBS needs them; the test glbs ship
 //! none), and UV-mapped imports additionally get TANGENTS built on the
 //! v1 intermediate (normal-mapping materials - RenderSystem::
@@ -93,8 +94,9 @@ namespace Orkige
 				"' failed to import: " + why);
 		}
 
-		//! the datablock (name) for one assimp material - PBS with the
-		//! diffuse/base colour and, when present, the diffuse texture
+		//! the datablock (name) for one assimp material - PBS in the
+		//! metallic workflow with the diffuse/base colour, the source's
+		//! metal-rough factors and, when present, the diffuse texture
 		//! (embedded textures decode from the glb blob); idempotent
 		String getOrCreateMeshDatablock(aiScene const * scene,
 			unsigned int materialIndex, String const & meshName)
@@ -153,6 +155,15 @@ namespace Orkige
 			{
 				material->Get(AI_MATKEY_COLOR_DIFFUSE, colour);
 			}
+			// the metal-rough pair the source declares; a glb that carries no
+			// pbrMetallicRoughness factors falls back to the SAME defaults an
+			// authored material has (RenderMaterialDesc: dielectric, fully
+			// rough) rather than to whatever the datablock was constructed
+			// with - see the workflow note below
+			float metalness = 0.0f;
+			float roughness = 1.0f;
+			material->Get(AI_MATKEY_METALLIC_FACTOR, metalness);
+			material->Get(AI_MATKEY_ROUGHNESS_FACTOR, roughness);
 
 			Ogre::HlmsPbs* pbs = static_cast<Ogre::HlmsPbs*>(
 				hlmsManager->getHlms(Ogre::HLMS_PBS));
@@ -160,7 +171,19 @@ namespace Orkige
 				static_cast<Ogre::HlmsPbsDatablock*>(pbs->createDatablock(
 					name, name, Ogre::HlmsMacroblock(), Ogre::HlmsBlendblock(),
 					Ogre::HlmsParamVec()));
+			// METAL-ROUGH, explicitly: a PBS datablock is CONSTRUCTED in the
+			// specular workflow with a white specular colour, which shades a
+			// plain imported surface like polished metal and diverges from
+			// both the authored-material road (RenderMaterialCache, same
+			// three calls) and the other flavor. glTF's own surface model IS
+			// metal-rough, so the imported material speaks it directly.
+			datablock->setWorkflow(Ogre::HlmsPbsDatablock::MetallicWorkflow);
 			datablock->setDiffuse(Ogre::Vector3(colour.r, colour.g, colour.b));
+			datablock->setMetalness(std::clamp(metalness, 0.0f, 1.0f));
+			// the Hlms floors roughness itself (a hard 0 breaks the BRDF) -
+			// mirror the floor so a 0-roughness source never trips its warning
+			datablock->setRoughness(
+				std::max(std::clamp(roughness, 0.0f, 1.0f), 0.02f));
 			if(texture)
 			{
 				datablock->setTexture(Ogre::PBSM_DIFFUSE, texture);
