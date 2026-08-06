@@ -433,6 +433,25 @@ it is a package running the GAME, and a game runs forever. Neither driver pays
 for that at its deadline: no report inside a generous start window is its own
 named failure, and the desktop run is terminated rather than left playing.
 
+An absent report is also where a harness is most tempted to guess, so it does
+not. Before it can accuse the package, it establishes whether the app **ran at
+all** — and the answer decides which of two sentences it prints:
+
+| Evidence | What it says |
+| --- | --- |
+| the launch was acknowledged with a process id, or the device lists a process for the app | *the packaged app RAN but never entered the test runner* — the artifact is running the game instead of its suite |
+| the device does not answer, lists no such process, or its commands overran their budgets | *simulator infrastructure failure - the device never ran the app* — the absence is the machine's, and the sentence names neither the artifact, its payload nor the engine |
+
+Positive proof that a process existed outranks every other fact, because a
+loaded machine makes commands slow and only the process itself settles whether
+the app ran. On a desktop package there is nothing to establish: the driver
+polls the process it spawned and returns the moment it exits, so reaching the
+start window at all means the app is still alive. On a simulator the question
+is put to the **device** (`xcrun simctl spawn <udid> launchctl list`, on a
+short budget — an answer that takes longer is the answer), never inferred from
+the report's silence. `export_tests_driver_selftest` decides every shape on
+fixtures, the wedged device included.
+
 ## Making it a ctest
 
 A project's suite is one `add_test` line:

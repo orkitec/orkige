@@ -168,6 +168,22 @@ add_test(NAME web_parity_driver_selftest
 set_tests_properties(web_parity_driver_selftest PROPERTIES
     LABELS unit TIMEOUT 120)
 
+# the packaged-suite driver's pure parts (export_macos_tests /
+# export_ios_simulator_tests). What it decides on fixtures is what an ABSENT
+# report means: a package running the game instead of its suite, or a device
+# that never ran the app at all. The two need opposite fixes and must never
+# wear each other's name, so both verdicts and both sentences are asserted
+# here - including the wedged simulator, which no test could otherwise stage.
+# The report reader's three shapes ride along. No device, no package, no
+# export.
+add_test(NAME export_tests_driver_selftest
+    COMMAND python3
+        "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_export_tests.py"
+        --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(export_tests_driver_selftest PROPERTIES
+    LABELS unit TIMEOUT 60)
+
 # sprite-atlas packer self-validation: make_sprite_atlas.py packs a
 # handful of synthetic sprites, re-parses its own .oatlas and asserts no region
 # overlaps, all rects in bounds, deterministic order. Stdlib-only, headless -
