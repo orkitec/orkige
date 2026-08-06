@@ -161,8 +161,8 @@ FLAT_FRAME_SPREAD = 1
 #: GATING: `gated=True` only where the pair measures CLEAN and both frames
 #: carry a picture - the corridor then locks a shot that agrees today into
 #: agreeing tomorrow, and the clean set all sits inside the pixel gate's own
-#: long-standing 6.0 / 2% numbers, so it is one corridor to reason about
-#: rather than fourteen.
+#: long-standing 6.0 / 2% numbers, so the whole gated set is ONE corridor to
+#: reason about rather than one per shot.
 #:
 #: Everywhere the pair measures a REAL DIVERGENCE the entry is `gated=False`,
 #: and its corridor is the measured state with headroom: the flavors do not
@@ -209,44 +209,62 @@ FEATURE_SHOTS = {
         "the perfect agreement is not evidence"),
 
     # -- shadows: the PSSM pass and each knob that suppresses part of it.
+    # The ground plane no longer POOLS - both flavors now shade the slab with
+    # one flat face normal, so the worst region mean halved (86.5 -> 42.1) and
+    # the divergent area collapsed from ~97 scattered regions to a couple of
+    # broad ones. What is left is a near-UNIFORM brightness offset over the
+    # checkered slab (this pair reads the open floor at luma 119.6 classic vs
+    # 156.5 next), which is why the outlier FRACTION rose while every other
+    # number fell: a constant offset puts more of one flat area over the
+    # threshold than a mottled one did. That residue is the albedo/texture
+    # colour-space seam, not the shadow pass, and it is what keeps this family
+    # report-only.
     "selfcheck_shadow_on.png": ShotCorridor(
-        30.0, 0.43, 100.0, False,
-        "mean 24.82, outliers 35.64%, region br 86.5 - the whole lower "
-        "ground plane differs"),
+        27.0, 0.50, 52.0, False,
+        "mean 22.33, outliers 41.44%, region bl 42.1 - a uniform brightness "
+        "offset over the ground plane"),
     "selfcheck_shadow_receive_on.png": ShotCorridor(
-        30.0, 0.43, 100.0, False,
-        "mean 24.82, outliers 35.64%, region br 86.5"),
+        27.0, 0.50, 52.0, False,
+        "mean 22.34, outliers 41.44%, region bl 42.1"),
     "selfcheck_shadow_low.png": ShotCorridor(
-        30.0, 0.43, 100.0, False,
-        "mean 24.92, outliers 35.80%, region br 86.1"),
+        27.0, 0.50, 52.0, False,
+        "mean 22.32, outliers 41.43%, region bl 42.1"),
     "selfcheck_shadow_off.png": ShotCorridor(
-        31.0, 0.44, 106.0, False,
-        "mean 25.39, outliers 36.55%, region br 90.3"),
+        28.0, 0.52, 60.0, False,
+        "mean 23.39, outliers 43.45%, region centre 49.1"),
     "selfcheck_shadow_caster_off.png": ShotCorridor(
-        31.0, 0.44, 106.0, False,
-        "mean 25.39, outliers 36.55%, region br 90.3"),
+        28.0, 0.52, 60.0, False,
+        "mean 23.39, outliers 43.45%, region centre 49.1"),
     "selfcheck_shadow_mesh_caster_off.png": ShotCorridor(
-        31.0, 0.44, 106.0, False,
-        "mean 25.39, outliers 36.55%, region br 90.3"),
+        28.0, 0.52, 60.0, False,
+        "mean 23.39, outliers 43.45%, region centre 49.1"),
     "selfcheck_shadow_receive_off.png": ShotCorridor(
-        31.0, 0.44, 106.0, False,
-        "mean 25.39, outliers 36.55%, region br 90.3"),
+        28.0, 0.52, 60.0, False,
+        "mean 23.39, outliers 43.45%, region centre 49.1"),
 
     # -- atmosphere: sky dome, exposure, the driven and restored states.
     "selfcheck_atmosphere_on.png": ShotCorridor(
         6.0, 0.02, 10.0, False,
         "mean 2.36, outliers 0.00%, region tl 7.8 - the sky band's gradient, "
         "no pixel over the outlier threshold anywhere"),
+    # These three read the terrain, so the flat-normal import converged them
+    # hard: driven/exposure went mean 35.43 -> 1.93 with the outlier fraction
+    # to ZERO, restored 21.98 -> 4.54. They now measure inside the gated set's
+    # 6.0 / 2% numbers on every axis except region headroom (5.4 and 9.4
+    # against a 6.0 corridor), so they stay report-only until a second pair
+    # confirms the region figure rather than being gated on one measurement.
     "selfcheck_atmosphere_exposure.png": ShotCorridor(
-        42.0, 0.35, 70.0, False,
-        "mean 35.43, outliers 29.02%, region bl 58.3"),
+        6.0, 0.02, 8.0, False,
+        "mean 1.93, outliers 0.00%, region bl 5.4 - no pixel over the "
+        "outlier threshold anywhere; a gate candidate on a second pair"),
     "selfcheck_atmosphere_driven.png": ShotCorridor(
-        42.0, 0.35, 70.0, False,
-        "mean 35.43, outliers 29.02%, region bl 58.3"),
+        6.0, 0.02, 8.0, False,
+        "mean 1.93, outliers 0.00%, region bl 5.4 - a gate candidate on a "
+        "second pair"),
     "selfcheck_atmosphere_restored.png": ShotCorridor(
-        27.0, 0.55, 100.0, False,
-        "mean 21.98, outliers 46.96%, region bl 85.2 - one 974k-pixel region, "
-        "nearly half the frame"),
+        6.0, 0.02, 12.0, False,
+        "mean 4.54, outliers 0.00%, region centre 9.4 - no pixel over the "
+        "outlier threshold anywhere"),
     "selfcheck_atmosphere_off.png": ShotCorridor(
         6.0, 0.02, 6.0, False,
         "FLAT PAIR: both flavors render solid black with the atmosphere off"),
@@ -274,21 +292,23 @@ FEATURE_SHOTS = {
 
     # -- image-based lighting, from the debug cube and the procedural sky.
     "selfcheck_ibl_on.png": ShotCorridor(
-        18.0, 0.24, 80.0, False,
-        "mean 13.89, outliers 18.56%, region centre 67.1 - the IBL-lit body"),
+        6.0, 0.02, 12.0, False,
+        "mean 1.56, outliers 0.08%, region centre 9.4 - the IBL-lit body, one "
+        "1.6k-pixel cluster left"),
     "selfcheck_ibl_off.png": ShotCorridor(
-        9.0, 0.24, 50.0, False,
-        "mean 6.86, outliers 18.58%, region centre 41.8"),
+        8.0, 0.20, 48.0, False,
+        "mean 6.59, outliers 16.00%, region centre 40.2"),
     "selfcheck_ibl_restored.png": ShotCorridor(
-        9.0, 0.24, 50.0, False,
-        "mean 6.86, outliers 18.58%, region centre 41.8"),
+        8.0, 0.20, 48.0, False,
+        "mean 6.59, outliers 16.00%, region centre 40.2"),
     "selfcheck_ibl_proc_on.png": ShotCorridor(
-        9.0, 0.06, 20.0, False,
-        "mean 6.11, outliers 4.23%, region centre 16.3"),
+        6.0, 0.02, 6.0, True,
+        "the procedurally-lit body, converged by the flat-normal import and "
+        "now gated: mean 0.77, outliers 0.20%, region centre 2.8"),
     "selfcheck_ibl_proc_off.png": ShotCorridor(
-        8.0, 0.02, 8.0, False,
-        "mean 5.06, outliers 0.81%, region br 5.1 - inside the pixel gate's "
-        "numbers but with almost no headroom, and over a 9.8k-pixel cluster"),
+        6.0, 0.02, 8.0, False,
+        "mean 1.60, outliers 0.30%, region centre 6.2 - one 6.2k-pixel "
+        "cluster on the body"),
 
     # -- fog.
     "selfcheck_fog_on.png": ShotCorridor(
@@ -296,24 +316,26 @@ FEATURE_SHOTS = {
         "mean 0.28, outliers 0.00%, region tr 1.5"),
     "selfcheck_fog_off.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "mean 0.60, outliers 0.37%, region centre 2.1"),
+        "mean 0.04, outliers 0.00%, region centre 0.2"),
     "selfcheck_fog_switchoff.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "mean 0.60, outliers 0.37%, region centre 2.1"),
+        "mean 0.04, outliers 0.00%, region centre 0.2"),
 
     # -- decals.
     "selfcheck_decal_baseline.png": ShotCorridor(
-        14.0, 0.24, 44.0, False,
-        "mean 10.35, outliers 18.99%, region centre 36.2"),
+        12.0, 0.04, 24.0, False,
+        "mean 9.55, outliers 1.80%, region centre 18.9"),
     "selfcheck_decal_faded.png": ShotCorridor(
-        14.0, 0.24, 44.0, False,
-        "mean 10.35, outliers 18.99%, region centre 36.2"),
+        12.0, 0.04, 24.0, False,
+        "mean 9.55, outliers 1.80%, region centre 18.9"),
     "selfcheck_decal_budget_off.png": ShotCorridor(
-        14.0, 0.24, 44.0, False,
-        "mean 10.35, outliers 18.99%, region centre 36.2"),
+        12.0, 0.04, 24.0, False,
+        "mean 9.55, outliers 1.80%, region centre 18.9"),
     "selfcheck_decal_mark.png": ShotCorridor(
-        13.0, 0.18, 26.0, False,
-        "mean 9.44, outliers 13.47%, region br 21.3"),
+        13.0, 0.02, 30.0, False,
+        "mean 10.14, outliers 0.42%, region centre 24.6 - the decalled floor "
+        "differs by a near-uniform offset now rather than a mottled one, so "
+        "the outlier fraction fell 13.47% -> 0.42% while the region mean rose"),
 
     # -- bloom.
     "selfcheck_bloom_off.png": ShotCorridor(

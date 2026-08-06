@@ -707,9 +707,21 @@ namespace Orkige
 				// 0 at V=0, so glTF's top-left UV origin needs the flip to
 				// render upright (classic gets this from its assimp codec,
 				// which enables aiProcess_FlipUVs; matching it keeps the two
-				// flavours pixel-identical)
+				// flavours pixel-identical).
+				// GenNormals (FLAT), never GenSmoothNormals: a mesh that
+				// carries no NORMAL attribute is shaded with FACE normals -
+				// what the glTF specification prescribes for that case, and
+				// what the classic flavour's assimp codec already does
+				// (aiProcessPreset_TargetRealtime_Fast carries GenNormals).
+				// assimp smooths by POSITION, so GenSmoothNormals averaged
+				// across a cube's coincident corner vertices at the default
+				// 175-degree threshold and fanned a flat face's normals into
+				// a radial pool - one flavour lighting a flat slab evenly and
+				// the other pooling it. Both flags are IGNORED when the mesh
+				// already carries normals, so every authored mesh imports
+				// byte-identically either way.
 				scene = importer.ApplyPostProcessing(
-					aiProcess_Triangulate | aiProcess_GenSmoothNormals |
+					aiProcess_Triangulate | aiProcess_GenNormals |
 					aiProcess_PreTransformVertices | aiProcess_SortByPType |
 					aiProcess_FlipUVs);
 			}
@@ -717,9 +729,11 @@ namespace Orkige
 			{
 				// the skinned road keeps the node hierarchy (the skeleton
 				// lives in it); LimitBoneWeights caps assimp at the four
-				// weights per vertex the v1 blend buffers carry
+				// weights per vertex the v1 blend buffers carry. GenNormals
+				// for the same reason as the static road above - one rule for
+				// a normal-less mesh on both roads
 				scene = importer.ApplyPostProcessing(
-					aiProcess_Triangulate | aiProcess_GenSmoothNormals |
+					aiProcess_Triangulate | aiProcess_GenNormals |
 					aiProcess_SortByPType | aiProcess_FlipUVs |
 					aiProcess_LimitBoneWeights);
 			}
