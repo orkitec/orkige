@@ -11,7 +11,7 @@ This is a second, separate package for the same repository. The earlier one -
 three Vulkan/Metal patches, all merged - is `Docs/upstream/PR_DESCRIPTIONS.md`.
 Numbering is package-local: "PR 1" here is unrelated to "PR 1" there.
 
-**Status: PREPARED, NOT FILED.**
+**Status: FILED as OGRECave/ogre#3700 (2026-08-06), verified to apply on master `027c776` at filing time.**
 
 The overlay port does not vendor this patch; it is carried here only as the
 material to send.
