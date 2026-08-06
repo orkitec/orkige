@@ -426,6 +426,31 @@ namespace Orkige
 		//! before they reach the backend). Dev trees always hit the raw name.
 		static String resolveTextureResourceName(String const & textureName);
 
+		//! @brief route a LIT material the engine did NOT generate - an
+		//! imported mesh's own material - onto the engine's own surface
+		//! shader state, the one a generated material rides.
+		//! @remarks An imported material carries no engine render state, so it
+		//! falls to the resolver's default fixed-function emulation: Blinn-
+		//! Phong direct light, a flat scene-ambient fill, and NO display
+		//! transfer (the stock colour stage's own encode is inert while
+		//! USE_LINEAR_COLOURS is undefined, as it is here - albedo already
+		//! reaches the shader raw, the engine-wide convention). That is a
+		//! second lighting model inside one flavor, and it disagrees with the
+		//! sibling backend, which gives an imported mesh the SAME physically
+		//! based datablock it gives a generated one. The three differences are
+		//! not separable - the per-pixel hemisphere ambient reads the
+		//! metal-rough stage's own pixel parameters, so the ambient cannot be
+		//! corrected without the lighting stage, and correcting the transfer
+		//! alone only unmasks the ambient - so the honest fix is the whole
+		//! re-route. The pass's metal-rough pair is restated first, because an
+		//! importer writes a fixed-function specular colour where this
+		//! engine's stage expects (roughness, metalness).
+		//! Idempotent, and a no-op for an already engine-owned material, so a
+		//! generated material and every later instance of the same mesh pass
+		//! through untouched. Unlit passes are left entirely alone.
+		static void configureImportedMaterial(
+			Ogre::MaterialPtr const & material);
+
 		//--- handle factories (protected facade ctors) -----------------
 		//! wrap an existing backend node into an owning facade handle and
 		//! register it; parent is the facade-graph parent (NULL for root)

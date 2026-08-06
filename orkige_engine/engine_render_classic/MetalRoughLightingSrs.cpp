@@ -270,6 +270,12 @@ namespace Orkige
 		renderState->addTemplateSubRenderState(
 			generator->createSubRenderState(SRS_METAL_ROUGH_LIGHTING));
 	}
+
+	//---------------------------------------------------------
+	Ogre::String const & metalRoughLightingSubRenderStateType()
+	{
+		return SRS_METAL_ROUGH_LIGHTING;
+	}
 }
 
 #endif // USE_RTSHADER_SYSTEM

@@ -56,6 +56,12 @@ namespace Orkige
 	void addMetalRoughLightingSubRenderState(
 		Ogre::RTShader::ShaderGenerator * generator,
 		Ogre::RTShader::RenderState * renderState);
+
+	//! the metal-rough lighting sub-render-state's type name - the key
+	//! RenderState::getSubRenderState answers to, so a caller can ask whether
+	//! a material is one the engine generated (and already carries this
+	//! stage's display transfer).
+	Ogre::String const & metalRoughLightingSubRenderStateType();
 }
 
 #endif // USE_RTSHADER_SYSTEM

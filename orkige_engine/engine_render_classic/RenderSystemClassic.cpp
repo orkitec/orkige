@@ -419,6 +419,89 @@ namespace Orkige
 #endif // USE_RTSHADER_SYSTEM
 	}
 	//---------------------------------------------------------
+	void RenderBackend::configureImportedMaterial(
+		Ogre::MaterialPtr const & material)
+	{
+#ifdef USE_RTSHADER_SYSTEM
+		Ogre::RTShader::ShaderGenerator* generator =
+			Ogre::RTShader::ShaderGenerator::getSingletonPtr();
+		if(!generator || !material)
+		{
+			return;	// fixed-function flavor: nothing generates shaders
+		}
+		const String & name = material->getName();
+		const String & group = material->getGroup();
+		const String scheme =
+			Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME;
+		// a material the engine already owns is done: a generated surface
+		// (@see createMaterial) and a material this function already
+		// re-routed both carry the metal-rough stage, so the check is one
+		// question and it also makes the re-route idempotent across every
+		// later instance of the same mesh. A technique the resolver
+		// registered lazily carries no stage of ours and still wants one.
+		if(Ogre::RTShader::RenderState* existing =
+			generator->getRenderState(scheme, name, group, 0))
+		{
+			if(existing->getSubRenderState(
+				metalRoughLightingSubRenderStateType()))
+			{
+				return;
+			}
+		}
+		Ogre::Technique* technique = material->getTechnique(0);
+		if(!technique || technique->getNumPasses() == 0)
+		{
+			return;
+		}
+		Ogre::Pass* pass = technique->getPass(0);
+		if(!pass->getLightingEnabled())
+		{
+			return;	// the unlit tier renders its colour directly on both
+					// flavors (2D layers, sprites, lines, decals, the sky
+					// dome, the additive emissive and caster passes)
+		}
+		// THE PBR PARAMETERS AN IMPORT CARRIES. The mesh importer maps a
+		// glTF's base colour onto the pass diffuse and its texture onto unit
+		// 0, but writes NOTHING for the metal-rough pair - the pass keeps a
+		// fixed-function specular COLOUR, which under the orm layout this
+		// engine's lighting stage reads (specular.x = roughness,
+		// specular.y = metalness) would mean a mirror-smooth surface. Restate
+		// the pair the sibling backend's importer leaves on its own datablock,
+		// which is that backend's documented default AND what a glTF with no
+		// metal-rough map resolves to: fully rough, non-metal.
+		pass->setSpecular(1.0f, 0.0f, 0.0f, 1.0f);
+		// an imported NORMAL MAP is a texture unit the mesh importer excluded
+		// from fixed-function texturing; recover its index so the re-derived
+		// state below rebuilds the normal-map stage instead of dropping it
+		// (the exclusion list survives - only the render state is rebuilt)
+		int normalTuIndex = -1;
+		const Ogre::Any & nonFFP =
+			pass->getUserObjectBindings().getUserAny("_RTSS_nonFFP_TUS");
+		if(nonFFP.has_value())
+		{
+			std::set<Ogre::uint16> const excluded =
+				Ogre::any_cast<std::set<Ogre::uint16> >(nonFFP);
+			if(!excluded.empty())
+			{
+				normalTuIndex = static_cast<int>(*excluded.begin());
+			}
+		}
+		// THE RE-ROUTE. An imported material reaching the resolver's default
+		// fixed-function emulation is the one place this flavor renders a lit
+		// surface by a different model than the rest of the picture: Blinn-
+		// Phong direct light, a flat scene-ambient fill, and no display
+		// transfer at all. Pin it to the SAME state a generated surface gets,
+		// so one lit pixel is produced by one model everywhere - metal-rough
+		// direct response, per-pixel hemisphere ambient, atmospheric fog,
+		// image lighting and the engine-wide sqrt encode, all from the one
+		// function that owns them.
+		configureSurfaceShaderState(generator, material, normalTuIndex,
+			/*hemisphereAmbient*/ true);
+#else
+		(void)material;
+#endif // USE_RTSHADER_SYSTEM
+	}
+	//---------------------------------------------------------
 	RenderSystem::FrameStats::FrameStats()
 		: lastFPS(0.0f)
 		, avgFPS(0.0f)

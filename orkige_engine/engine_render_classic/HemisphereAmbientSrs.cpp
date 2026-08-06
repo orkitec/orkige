@@ -75,6 +75,20 @@ namespace Orkige
 			//! shader parameters are resolved fresh on every program build
 			void copyFrom(const SubRenderState &) override {}
 
+			//! an ambient FILL belongs to a lit surface: the same gate the
+			//! lighting and image-lighting stages carry, and the one that
+			//! keeps the trio consistent when a pass is switched to unlit
+			//! AFTER its render state was pinned (@see
+			//! MeshInstance::setVertexColourUnlit, which does exactly that to
+			//! an imported material). Without it the lighting stage opts out
+			//! while this one stays, and the pairing its shader depends on -
+			//! the PixelParams local - is simply absent.
+			bool preAddToRenderState(const RenderState *, Ogre::Pass * srcPass,
+				Ogre::Pass *) override
+			{
+				return srcPass->getLightingEnabled();
+			}
+
 			bool createCpuSubPrograms(ProgramSet * programSet) override;
 
 			void updateGpuProgramsParams(Ogre::Renderable * rend,

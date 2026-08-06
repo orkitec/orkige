@@ -83,11 +83,14 @@ namespace Orkige
 				// the per-material render state only EXISTS for materials with
 				// a REGISTERED shader-based technique (the scheme's technique
 				// entries; a bare getRenderState on an unregistered name
-				// answers NULL). The source has one when it is a generated
-				// surface material - a plain/imported material answers NULL
-				// and needs no copy, the resolver's default FFP emulation is
-				// its look. The variant must be registered FIRST, then its
-				// fresh render state can take the copied stages.
+				// answers NULL). Every LIT material has one - a generated
+				// surface from createMaterial, an imported one from
+				// RenderBackend::configureImportedMaterial - and those stages
+				// must travel to the variant or it would regenerate to a
+				// different look than the material it clones. An unlit
+				// material answers NULL and needs no copy. The variant must be
+				// registered FIRST, then its fresh render state can take the
+				// copied stages.
 				Ogre::RTShader::RenderState* source =
 					generator->getRenderState(scheme, original->getName(),
 						original->getGroup(), 0);
@@ -112,6 +115,13 @@ namespace Orkige
 						variant->getGroup());
 				}
 			}
+			// the copy above reproduces a SOURCE state that already existed;
+			// a lit material whose variant still carries none would light by
+			// the resolver's fixed-function emulation while the material it
+			// clones does not - the same one-flavor-two-models split the
+			// imported road had. Ask the one door, which is a no-op when the
+			// copy landed the engine's lighting stage and for unlit variants.
+			RenderBackend::configureImportedMaterial(variant);
 #endif // USE_RTSHADER_SYSTEM
 			return variant;
 		}
@@ -233,6 +243,17 @@ namespace Orkige
 			return optr<MeshInstance>();
 		}
 		entity->setQueryFlags(RenderWorld::QUERYFLAG_DEFAULT);
+		// the ONE place the engine meets an IMPORTED material: the mesh
+		// brought its own, so nothing has pinned a render state on it and it
+		// would light by the resolver's fixed-function emulation instead of
+		// this engine's surface model. Route it onto the engine's own state
+		// (idempotent; a generated material and every later instance of the
+		// same mesh pass straight through)
+		for(unsigned int each = 0; each < entity->getNumSubEntities(); ++each)
+		{
+			RenderBackend::configureImportedMaterial(
+				entity->getSubEntity(each)->getMaterial());
+		}
 		// tag the 3D tier so the bloom scene split feeds it to the glow source
 		RenderBackend::tagScene3D(entity);
 		// record it as a scene-tier source so the SHADED+WIREFRAME overlay can
