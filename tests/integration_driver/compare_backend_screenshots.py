@@ -267,28 +267,32 @@ FEATURE_SHOTS = {
     # from mean ~22 / region ~42-49 to mean ~2 / region <5, with the outlier
     # fraction at effectively zero. The direct (sun) response of an imported
     # material now matches between the flavors; what residue this scene has
-    # left is a handful of sub-100px clusters on shadow edges.
+    # left is a handful of sub-100px clusters on shadow edges. The scene's sun
+    # is authored with a specular colour distinct from its diffuse one, so the
+    # family fell again - mean ~2.0 to ~0.1, region 3.7-4.4 to <=0.1 - once the
+    # classic stage started weighting its specular lobe by the light's SPECULAR
+    # lane, the way the other backend's BRDF does.
     "selfcheck_shadow_on.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "mean 1.94, outliers 0.03%, region centre 3.7"),
+        "mean 0.15, outliers 0.04%, region centre 0.1"),
     "selfcheck_shadow_receive_on.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "mean 1.95, outliers 0.04%, region centre 3.6"),
+        "mean 0.15, outliers 0.04%, region br 0.0"),
     "selfcheck_shadow_low.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "mean 1.93, outliers 0.03%, region centre 3.7"),
+        "mean 0.13, outliers 0.03%, region br 0.1"),
     "selfcheck_shadow_off.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "mean 2.00, outliers 0.00%, region centre 4.4"),
+        "mean 0.11, outliers 0.00%, region br 0.0"),
     "selfcheck_shadow_caster_off.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "mean 2.00, outliers 0.00%, region centre 4.4"),
+        "mean 0.11, outliers 0.00%, region br 0.0"),
     "selfcheck_shadow_mesh_caster_off.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "mean 2.00, outliers 0.00%, region centre 4.4"),
+        "mean 0.11, outliers 0.00%, region br 0.0"),
     "selfcheck_shadow_receive_off.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "mean 2.00, outliers 0.00%, region centre 4.4"),
+        "mean 0.11, outliers 0.00%, region br 0.0"),
 
     # -- atmosphere: sky dome, exposure, the driven and restored states.
     "selfcheck_atmosphere_on.png": ShotCorridor(
@@ -346,18 +350,18 @@ FEATURE_SHOTS = {
     # below hold it as a ratchet, not as a verdict.
     "selfcheck_ibl_on.png": ShotCorridor(
         6.0, 0.02, 16.0, False,
-        "mean 2.18, outliers 0.08%, region centre 13.4, bands edge/foot 16.0 "
+        "mean 2.09, outliers 0.00%, region centre 13.0, bands edge/foot 16.0 "
         "- the cubemap-lit plate plus classic's driven fill against next's "
         "authored black",
         mirror_wall_bands(18.0)),
     "selfcheck_ibl_off.png": ShotCorridor(
         9.0, 0.22, 52.0, False,
-        "mean 7.97, outliers 18.56%, region centre 49.0, bands edge 61.0 "
+        "mean 7.85, outliers 18.29%, region centre 48.4, bands edge 61.0 "
         "foot 60.5 - classic's driven hemisphere fill against next's black",
         mirror_wall_bands(64.0)),
     "selfcheck_ibl_restored.png": ShotCorridor(
         9.0, 0.22, 52.0, False,
-        "mean 7.97, outliers 18.56%, region centre 49.0, bands edge 61.0 "
+        "mean 7.85, outliers 18.29%, region centre 48.4, bands edge 61.0 "
         "foot 60.5 - same residual as ibl_off",
         mirror_wall_bands(64.0)),
     # THE PROCEDURAL LEG. The same metal plate under the captured procedural
@@ -366,16 +370,20 @@ FEATURE_SHOTS = {
     # carrying the linked light's exposure knob into its own normalizer. The
     # grazing bands are what say so - they read 5.2/11.0 before and 0.4/1.0
     # after, while the centre region moved 2.8 -> 2.3 and 6.2 -> 3.5.
+    # The plate is a metal, so its whole look IS the specular lobe: the last
+    # cluster on it was the scene light's specular colour, which classic read
+    # off the DIFFUSE lane. Weighting the lobe by the specular lane (the other
+    # backend's split) closed the highlight outright - the cluster of 1.1k/1.6k
+    # pixels became zero pixels over threshold, region 2.3 -> 0.3 and 3.5 -> 0.1.
     "selfcheck_ibl_proc_on.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "mean 0.33, outliers 0.21%, region centre 2.3, bands edge 0.4 "
-        "foot 0.4 - one 1.1k-pixel cluster on the sun highlight is the "
-        "remainder",
+        "mean 0.06, outliers 0.00%, region centre 0.3, bands edge 0.4 "
+        "foot 0.5",
         mirror_wall_bands(4.0)),
     "selfcheck_ibl_proc_off.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "the same plate with the environment fill off, now gated: mean 0.50, "
-        "outliers 0.31%, region centre 3.5, bands edge 1.0 foot 0.4",
+        "the same plate with the environment fill off, now gated: mean 0.01, "
+        "outliers 0.00%, region centre 0.1, bands edge 0.2 foot 0.1",
         mirror_wall_bands(4.0)),
 
     # -- fog.

@@ -199,6 +199,14 @@ namespace Orkige
 				auto lightDiffuse = psProgram->resolveParameter(
 					GpuProgramParameters::ACT_LIGHT_DIFFUSE_COLOUR_POWER_SCALED_ARRAY,
 					this->mLightCount);
+				// the SPECULAR lane travels beside the diffuse one: the other
+				// backend weights its specular lobe by the light's specular
+				// colour and its diffuse lobe by the diffuse colour, so a light
+				// authored with two different colours must reach this shader as
+				// two arrays (@see OrkigeLib_MetalRough.glsl evaluateLight)
+				auto lightSpecular = psProgram->resolveParameter(
+					GpuProgramParameters::ACT_LIGHT_SPECULAR_COLOUR_POWER_SCALED_ARRAY,
+					this->mLightCount);
 				auto pointParams = psProgram->resolveParameter(
 					GpuProgramParameters::ACT_LIGHT_ATTENUATION_ARRAY,
 					this->mLightCount);
@@ -210,7 +218,8 @@ namespace Orkige
 					this->mLightCount);
 
 				std::vector<Operand> params = { In(viewNormal), In(viewPos),
-					In(sceneCol), In(lightPos), In(lightDiffuse), In(pointParams),
+					In(sceneCol), In(lightPos), In(lightDiffuse),
+					In(lightSpecular), In(pointParams),
 					In(lightDirView), In(spotParams), In(pixelParams),
 					InOut(outDiffuse).xyz() };
 

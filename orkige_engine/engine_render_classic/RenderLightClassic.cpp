@@ -31,6 +31,13 @@ namespace Orkige
 		// technique the moment it exists (the next backend sets the same
 		// explicit default)
 		light->setCastShadows(false);
+		// the facade contract: a light's two colour lanes both start WHITE, so
+		// an app that never touches the specular lane gets the same highlight
+		// on both flavors. The metal-rough stage weights the specular lobe by
+		// this lane (@see OrkigeLib_MetalRough.glsl), and Ogre's own default
+		// here is BLACK while the next backend's is white - left alone, the
+		// same unlit-by-the-app lamp would put a highlight on one flavor only
+		light->setSpecularColour(Ogre::ColourValue::White);
 		optr<RenderLight> handle(new RenderLight());
 		handle->mImpl->light = light;
 		handle->mImpl->creator = sceneManager;

@@ -13,6 +13,11 @@
 //     (energy bias/factor + light/view scatter over perceptual roughness);
 //   - the specular fresnel uses VdotH with f90 = 1 and NO multi-scatter energy
 //     compensation;
+//   - a light's two colour lanes stay SEPARATE: the specular lobe is weighted
+//     by the light's specular colour and the diffuse lobe by its diffuse
+//     colour, so a lamp authored with two different colours reads the same on
+//     both flavors (the facade starts both lanes white - @see
+//     RenderBackend::createLight);
 //   - the lit output is display-encoded with sqrt() at the end of the pixel
 //     shader (Orkige_DisplayTransfer below) - the same cheap gamma transfer
 //     the default backend applies when rendering to a non-sRGB target.
@@ -136,7 +141,8 @@ vec3 evaluateLight(
                 in f32vec3 vNormal,
                 in vec3 viewPos,
                 in f32vec4 lightPos,
-                in vec3 lightColor,
+                in vec3 lightDiffuse,
+                in vec3 lightSpecular,
                 in vec4 pointParams,
                 in vec4 vLightDirView,
                 in vec4 spotParams,
@@ -190,7 +196,14 @@ vec3 evaluateLight(
     vec3 Fd = pixel.diffuseColor * Fd_Lambert()
         * (lightScatter * viewScatter * energyFactor);
 
-    vec3 color = NoL * lightColor * (Fr + Fd);
+    // the two light lanes are DISTINCT, exactly as the default backend's BRDF
+    // consumes them: the specular lobe is weighted by the light's SPECULAR
+    // colour and the diffuse lobe by its DIFFUSE colour. Folding both onto the
+    // diffuse lane renders a light whose two colours differ (a dimmed-highlight
+    // lamp is the common case) with a specular highlight too bright by exactly
+    // their ratio - and on a metal, where the diffuse lobe is zero, that ratio
+    // IS the whole surface.
+    vec3 color = NoL * (lightSpecular * Fr + lightDiffuse * Fd);
 
     // the default backend's point/spot falloff (its clustered-forward light
     // loop): the authored constant term is replaced by a fixed 0.5 and a
@@ -347,7 +360,8 @@ void PBR_Lights(
                 in vec3 viewPos,
                 in vec4 ambient,
                 in f32vec4 lightPos[LIGHT_COUNT],
-                in f32vec4 lightColor[LIGHT_COUNT],
+                in f32vec4 lightDiffuse[LIGHT_COUNT],
+                in f32vec4 lightSpecular[LIGHT_COUNT],
                 in f32vec4 pointParams[LIGHT_COUNT],
                 in f32vec4 vLightDirView[LIGHT_COUNT],
                 in f32vec4 spotParams[LIGHT_COUNT],
@@ -356,7 +370,7 @@ void PBR_Lights(
 {
     for(int i = 0; i < LIGHT_COUNT; i++)
     {
-        vec3 lightVal = evaluateLight(vNormal, viewPos, lightPos[i], lightColor[i].xyz, pointParams[i], vLightDirView[i], spotParams[i],
+        vec3 lightVal = evaluateLight(vNormal, viewPos, lightPos[i], lightDiffuse[i].xyz, lightSpecular[i].xyz, pointParams[i], vLightDirView[i], spotParams[i],
                         pixel);
 
 #ifdef SHADOWLIGHT_COUNT
