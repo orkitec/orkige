@@ -146,6 +146,13 @@ jobs:
           git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
           "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+          mkdir -p "$VCPKG_ROOT_DIR/downloads"
+          # distfile seed: lua.org refuses the hosted runners' address space,
+          # so the exact pinned tarball rides our ci-assets release; vcpkg
+          # verifies the SHA512 itself and re-downloads on any mismatch
+          curl -fsSL --retry 3 \
+            "https://github.com/orkitec/orkige/releases/download/ci-assets/lua-5.5.0.tar.gz" \
+            -o "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz" || true
 
       - name: Restore vcpkg binary cache
         # shares the linux-next cache key so a nightly run restores the same
@@ -268,6 +275,13 @@ jobs:
           git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
           "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+          mkdir -p "$VCPKG_ROOT_DIR/downloads"
+          # distfile seed: lua.org refuses the hosted runners' address space,
+          # so the exact pinned tarball rides our ci-assets release; vcpkg
+          # verifies the SHA512 itself and re-downloads on any mismatch
+          curl -fsSL --retry 3 \
+            "https://github.com/orkitec/orkige/releases/download/ci-assets/lua-5.5.0.tar.gz" \
+            -o "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz" || true
 
       - name: Restore vcpkg binary cache
         # shares the linux-next cache key (read-only here: no save step) so a
@@ -387,6 +401,13 @@ jobs:
           # vcpkg requires the binary-cache dir to pre-exist; actions/cache only
           # creates it on a hit, so make it here for the cold-cache first run
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+          mkdir -p "$VCPKG_ROOT_DIR/downloads"
+          # distfile seed: lua.org refuses the hosted runners' address space,
+          # so the exact pinned tarball rides our ci-assets release; vcpkg
+          # verifies the SHA512 itself and re-downloads on any mismatch
+          curl -fsSL --retry 3 \
+            "https://github.com/orkitec/orkige/releases/download/ci-assets/lua-5.5.0.tar.gz" \
+            -o "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz" || true
 
       - name: Restore vcpkg binary cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service; migrating is a deliberate cold-rebuild exercise
@@ -696,6 +717,13 @@ jobs:
           git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
           "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+          mkdir -p "$VCPKG_ROOT_DIR/downloads"
+          # distfile seed: lua.org refuses the hosted runners' address space,
+          # so the exact pinned tarball rides our ci-assets release; vcpkg
+          # verifies the SHA512 itself and re-downloads on any mismatch
+          curl -fsSL --retry 3 \
+            "https://github.com/orkitec/orkige/releases/download/ci-assets/lua-5.5.0.tar.gz" \
+            -o "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz" || true
 
       - name: Restore vcpkg binary cache
         # the ci.yml web job's key (read-only here: no save step) - including
@@ -792,6 +820,13 @@ jobs:
           git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
           "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+          mkdir -p "$VCPKG_ROOT_DIR/downloads"
+          # distfile seed: lua.org refuses the hosted runners' address space,
+          # so the exact pinned tarball rides our ci-assets release; vcpkg
+          # verifies the SHA512 itself and re-downloads on any mismatch
+          curl -fsSL --retry 3 \
+            "https://github.com/orkitec/orkige/releases/download/ci-assets/lua-5.5.0.tar.gz" \
+            -o "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz" || true
 
       - name: Restore vcpkg binary cache
         # the ci.yml ios-simulator job's key (read-only here: no save step) - a
@@ -914,6 +949,13 @@ jobs:
           git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
           "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+          mkdir -p "$VCPKG_ROOT_DIR/downloads"
+          # distfile seed: lua.org refuses the hosted runners' address space,
+          # so the exact pinned tarball rides our ci-assets release; vcpkg
+          # verifies the SHA512 itself and re-downloads on any mismatch
+          curl -fsSL --retry 3 \
+            "https://github.com/orkitec/orkige/releases/download/ci-assets/lua-5.5.0.tar.gz" \
+            -o "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz" || true
 
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
@@ -1046,6 +1088,13 @@ jobs:
           git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
           "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+          mkdir -p "$VCPKG_ROOT_DIR/downloads"
+          # distfile seed: lua.org refuses the hosted runners' address space,
+          # so the exact pinned tarball rides our ci-assets release; vcpkg
+          # verifies the SHA512 itself and re-downloads on any mismatch
+          curl -fsSL --retry 3 \
+            "https://github.com/orkitec/orkige/releases/download/ci-assets/lua-5.5.0.tar.gz" \
+            -o "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz" || true
 
       - name: Restore vcpkg binary cache
         # shares the macos-next key: a triplet's cache holds both the Debug and
@@ -1423,6 +1472,13 @@ jobs:
           git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
           "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+          mkdir -p "$VCPKG_ROOT_DIR/downloads"
+          # distfile seed: lua.org refuses the hosted runners' address space,
+          # so the exact pinned tarball rides our ci-assets release; vcpkg
+          # verifies the SHA512 itself and re-downloads on any mismatch
+          curl -fsSL --retry 3 \
+            "https://github.com/orkitec/orkige/releases/download/ci-assets/lua-5.5.0.tar.gz" \
+            -o "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz" || true
 
       - name: Restore vcpkg binary cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
