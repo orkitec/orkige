@@ -70,7 +70,7 @@ jobs:
 
       - name: Restore emsdk
         id: emsdk-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/Development/emsdk
           key: emsdk-${{ env.EMSDK_VERSION }}-${{ runner.os }}
@@ -84,7 +84,7 @@ jobs:
 
       - name: Save emsdk
         if: always() && steps.emsdk-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/Development/emsdk
           key: ${{ steps.emsdk-cache.outputs.cache-primary-key }}
@@ -100,7 +100,7 @@ jobs:
       # so a manual deploy reuses the binary cache the push builds already warmed
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/vcpkg-binary-cache
           key: vcpkg-web-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**', 'cmake/wasm32-emscripten-toolchain.cmake') }}-${{ env.VCPKG_COMMIT }}
@@ -109,7 +109,7 @@ jobs:
 
       - name: Restore ccache
         id: ccache-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/.ccache
           key: ccache-web-${{ runner.os }}-pages-${{ github.sha }}
@@ -121,7 +121,7 @@ jobs:
 
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
@@ -152,7 +152,7 @@ jobs:
       # land in the same directory, and saving them under the web key would
       # bloat the cache the push builds restore
       - name: Restore the classic vcpkg binary cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/vcpkg-binary-cache
           key: vcpkg-classic-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -173,7 +173,7 @@ jobs:
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}

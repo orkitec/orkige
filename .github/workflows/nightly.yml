@@ -150,7 +150,7 @@ jobs:
       - name: Restore vcpkg binary cache
         # shares the linux-next cache key so a nightly run restores the same
         # binary set the push CI built (read-only here: no save step)
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/vcpkg-binary-cache
           key: vcpkg-next-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -158,7 +158,7 @@ jobs:
             vcpkg-next-v2-${{ runner.os }}-
 
       - name: Restore ccache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/.ccache
           key: ccache-soak-${{ runner.os }}-${{ github.sha }}
@@ -176,7 +176,7 @@ jobs:
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/.ccache
           key: ccache-soak-${{ runner.os }}-${{ github.sha }}
@@ -272,7 +272,7 @@ jobs:
       - name: Restore vcpkg binary cache
         # shares the linux-next cache key (read-only here: no save step) so a
         # nightly run restores the same binary set the push CI built
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/vcpkg-binary-cache
           key: vcpkg-next-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -280,7 +280,7 @@ jobs:
             vcpkg-next-v2-${{ runner.os }}-
 
       - name: Restore ccache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/.ccache
           key: ccache-valgrind-${{ runner.os }}-${{ github.sha }}
@@ -298,7 +298,7 @@ jobs:
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/.ccache
           key: ccache-valgrind-${{ runner.os }}-${{ github.sha }}
@@ -671,7 +671,7 @@ jobs:
 
       - name: Restore emsdk
         id: emsdk-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/Development/emsdk
           key: emsdk-${{ env.EMSDK_VERSION }}-${{ runner.os }}
@@ -685,7 +685,7 @@ jobs:
 
       - name: Save emsdk
         if: always() && steps.emsdk-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/Development/emsdk
           key: ${{ steps.emsdk-cache.outputs.cache-primary-key }}
@@ -700,7 +700,7 @@ jobs:
       - name: Restore vcpkg binary cache
         # the ci.yml web job's key (read-only here: no save step) - including
         # the chainload wrapper, whose compiler flags are part of the ABI
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/vcpkg-binary-cache
           key: vcpkg-web-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**', 'cmake/wasm32-emscripten-toolchain.cmake') }}-${{ env.VCPKG_COMMIT }}
@@ -709,7 +709,7 @@ jobs:
 
       - name: Restore ccache
         id: ccache-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/.ccache
           key: ccache-nightly-web-${{ runner.os }}-${{ github.run_id }}
@@ -727,7 +727,7 @@ jobs:
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
@@ -796,7 +796,7 @@ jobs:
       - name: Restore vcpkg binary cache
         # the ci.yml ios-simulator job's key (read-only here: no save step) - a
         # nightly restores the dependency set the push CI already paid for
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /Users/runner/vcpkg-binary-cache
           key: vcpkg-ios-next-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -806,7 +806,7 @@ jobs:
 
       - name: Restore ccache
         id: ccache-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /Users/runner/.ccache
           key: ccache-nightly-ios-${{ runner.os }}-${{ github.run_id }}
@@ -824,7 +824,7 @@ jobs:
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /Users/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
@@ -919,7 +919,7 @@ jobs:
         id: vcpkg-cache
         # this triplet is arm64-android, which no push-CI job builds (those are
         # the emulator's x86_64), so this job OWNS its cache and saves it
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/vcpkg-binary-cache
           key: vcpkg-android-arm64-next-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -928,7 +928,7 @@ jobs:
 
       - name: Restore ccache
         id: ccache-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/.ccache
           key: ccache-nightly-android-${{ runner.os }}-${{ github.run_id }}
@@ -945,7 +945,7 @@ jobs:
       # dependency build somebody already paid six hours for
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
@@ -955,7 +955,7 @@ jobs:
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
@@ -1051,7 +1051,7 @@ jobs:
         # shares the macos-next key: a triplet's cache holds both the Debug and
         # the Release build of every port, so the push CI already paid for this
         # tree's dependencies (read-only here - no save step)
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /Users/runner/vcpkg-binary-cache
           key: vcpkg-macos-next-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -1062,7 +1062,7 @@ jobs:
         id: ccache-cache
         # its OWN key: Release object files do not overlap the Debug ones the
         # push CI caches, so this warms night to night on its own
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /Users/runner/.ccache
           key: ccache-nightly-macos-${{ runner.os }}-${{ github.run_id }}
@@ -1097,7 +1097,7 @@ jobs:
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /Users/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
@@ -1425,7 +1425,7 @@ jobs:
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
 
       - name: Restore vcpkg binary cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/vcpkg-binary-cache
           key: vcpkg-next-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -1434,7 +1434,7 @@ jobs:
 
       - name: Restore ccache
         id: ccache-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/.ccache
           key: ccache-nightly-linux-${{ runner.os }}-${{ github.run_id }}
@@ -1469,7 +1469,7 @@ jobs:
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: /home/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
@@ -1679,7 +1679,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
 
       - name: Restore vcpkg binary cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
         with:
           path: C:/Users/runneradmin/vcpkg-binary-cache
           key: vcpkg-windows-next-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
