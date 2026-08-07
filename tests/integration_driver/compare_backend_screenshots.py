@@ -150,7 +150,11 @@ FLAT_FRAME_SPREAD = 1
 #: so there is no classic counterpart to compare and they are not a parity
 #: subject. `selfcheck_sky_skybox_cooked.png` needs
 #: ORKIGE_SELFCHECK_COOKED_CUBE_DIR and is written by neither flavor in a
-#: plain run. `light_probe.png` is a probe image, not a look frame. The four
+#: plain run. `light_probe.png` and `ambient_flat_probe.png` are probe
+#: images, not look frames - the latter is one frame the decal leg renders
+#: with the ground hemisphere nudged a hair off the sky one, compared against
+#: the flat baseline WITHIN a flavor to catch a backend evaluating an equal
+#: pair by a different formula than a near-equal one. The four
 #: COMPARED_SHOTS stay in the pixel gate above and are not repeated here.
 #:
 #: MEASUREMENT: every `note` carries what the developer pair measures - mean /
@@ -181,18 +185,19 @@ FEATURE_SHOTS = {
     # the same 2D path the gated selfcheck_drawlayer2d.png takes.
     "selfcheck_drawlayer2d_dynamic.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "a rebuilt batch: mean 0.67, outliers 0.97%, region br 1.6 - the outlier set is the imported platform (the ambient seam), inside the gate"),
+        "a rebuilt batch: mean 0.00, outliers 0.00%, region 0.0 - the "
+        "imported platform this frame carries agrees pixel for pixel since "
+        "the two flavors settled on one flat-ambient response"),
     "selfcheck_drawlayer2d_rebake.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "the same batch re-baked: mean 0.67, outliers 0.97%, region br 1.6 - the outlier set is the imported platform (the ambient seam), inside the gate"),
+        "the same batch re-baked: mean 0.00, outliers 0.00%, region 0.0"),
     "selfcheck_drawlayer2d_shown.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "a hidden layer shown again: mean 0.67, outliers 0.97%, region br "
-        "1.6"),
+        "a hidden layer shown again: mean 0.00, outliers 0.00%, region 0.0"),
     "selfcheck_drawlayer2d_removed.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "the layer removed, the scene alone: mean 0.67, outliers 0.97%, "
-        "region br 1.6"),
+        "the layer removed, the scene alone: mean 0.00, outliers 0.00%, "
+        "region 0.0"),
     "selfcheck_rtt_2d.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
         "the offscreen target with no window 2D leaked into it: mean 0.00, "
@@ -324,31 +329,33 @@ FEATURE_SHOTS = {
         "mean 0.04, outliers 0.00%, region centre 0.2"),
 
     # -- decals. The scene is the imported platform under a FLAT AMBIENT
-    # (0.5 grey) plus a point light, and that ambient term is where the two
-    # imported-material fixes still disagree: classic reads the floor a
-    # uniform ~1.6x brighter in display space (~2.9x linear), edge to edge,
-    # with no bump under the point light - so the divergence is the ambient
-    # response alone, while the SAME mesh under the shadow family's direct
-    # sun matches at mean ~1.94. The re-routes moved the two flavors in
-    # opposite directions here (classic gained the display transfer, next
-    # lost the white-specular lift), widening this family 9.55 -> 26.91
-    # mean; the same seam is the window/drawlayer2d shots' platform cluster
-    # (0.36% -> 0.97% outliers, still inside their gate). Named, unresolved:
-    # the imported-material ambient seam.
+    # (0.5 grey) plus a point light, which makes this family the one place
+    # the sweep scores the flat-ambient response on its own: the platform
+    # fills the frame, and the direct term is a single dim point light.
+    # CONVERGED: the two flavors now evaluate one authored fill by one
+    # formula (ambient x albedo), so the floor agrees edge to edge and the
+    # family fell from mean 26.91 / 47.12% outliers / region 56.3 to mean
+    # 0.10 with no pixel over the outlier threshold. The three floor-only
+    # shots gate. What is left is `decal_mark` alone, and it is the MARK,
+    # not the floor: the flavors reach the same surface by different
+    # mechanisms (a true projected decal against an aligned-quad subset),
+    # so the blob's falloff differs over its own footprint while the
+    # platform around it is clean.
     "selfcheck_decal_baseline.png": ShotCorridor(
-        32.0, 0.55, 68.0, False,
-        "mean 26.91, outliers 47.12%, region centre 56.3 - the "
-        "imported-material ambient seam (see the family note)"),
+        6.0, 0.02, 6.0, True,
+        "the lit floor, converged by the one-ambient-response fix and now "
+        "gated: mean 0.10, outliers 0.00%, region 0.0"),
     "selfcheck_decal_faded.png": ShotCorridor(
-        32.0, 0.55, 68.0, False,
-        "mean 26.91, outliers 47.12%, region centre 56.3"),
+        6.0, 0.02, 6.0, True,
+        "mean 0.10, outliers 0.00%, region 0.0"),
     "selfcheck_decal_budget_off.png": ShotCorridor(
-        32.0, 0.55, 68.0, False,
-        "mean 26.91, outliers 47.12%, region centre 56.3"),
+        6.0, 0.02, 6.0, True,
+        "mean 0.10, outliers 0.00%, region 0.0"),
     "selfcheck_decal_mark.png": ShotCorridor(
-        27.0, 0.40, 37.0, False,
-        "mean 22.33, outliers 33.78%, region br 30.4 - the mark itself "
-        "reads on both flavors; the offset is the family's ambient seam"),
+        6.0, 0.02, 28.0, False,
+        "mean 3.71, outliers 0.94%, region centre 22.0 - the floor around "
+        "the mark is clean; the residual is the blob's own footprint, where "
+        "the two marking mechanisms fall off differently"),
 
     # -- bloom.
     "selfcheck_bloom_off.png": ShotCorridor(

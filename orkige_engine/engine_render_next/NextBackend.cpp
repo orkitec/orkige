@@ -2986,6 +2986,34 @@ namespace Orkige
 	}
 	//--- end IBL block ----------------------------------------------------
 	//---------------------------------------------------------
+	void RenderBackend::applySceneAmbient(Ogre::SceneManager* sceneManager,
+		Ogre::ColourValue const & upperHemisphere,
+		Ogre::ColourValue const & lowerHemisphere)
+	{
+		oAssert(sceneManager);
+		sceneManager->setAmbientLight(upperHemisphere, lowerHemisphere,
+			Ogre::Vector3::UNIT_Y, RenderBackend::imageLightingEnvmapScale());
+		if(!gRenderSystem || !gRenderSystem->mImpl->root)
+		{
+			return;	// no live root (teardown): nothing shades anything
+		}
+		Ogre::Hlms* hlms = gRenderSystem->mImpl->root->getHlmsManager()
+			->getHlms(Ogre::HLMS_PBS);
+		if(!hlms)
+		{
+			return;
+		}
+		// ONE ambient response for every non-black fill (@see the header):
+		// the hemisphere formula, which reads a flat pair as the uniform fill
+		// it is instead of dropping to the pi-scaled fixed lane. Black keeps
+		// the automatic mode, which answers "no ambient term" for it.
+		const bool lit = upperHemisphere != Ogre::ColourValue::Black ||
+			lowerHemisphere != Ogre::ColourValue::Black;
+		static_cast<Ogre::HlmsPbs*>(hlms)->setAmbientLightMode(lit
+			? Ogre::HlmsPbs::AmbientHemisphereInverted
+			: Ogre::HlmsPbs::AmbientAutoNormal);
+	}
+	//---------------------------------------------------------
 	void RenderBackend::recreateWindowWorkspace()
 	{
 		oAssert(gRenderSystem);

@@ -184,12 +184,12 @@ namespace Orkige
 	{
 		this->mImpl->ambient = upperHemisphere;
 		this->mImpl->ambientLower = lowerHemisphere;
-		// Next carries the native two-colour sky/ground ambient term; the
-		// envmapScale slot rides along so an ambient write never resets the
-		// image-lighting intensity (@see RenderBackend::applyImageLighting)
-		this->mImpl->sceneManager->setAmbientLight(upperHemisphere,
-			lowerHemisphere, Ogre::Vector3::UNIT_Y,
-			RenderBackend::imageLightingEnvmapScale());
+		// Next carries the native two-colour sky/ground ambient term; the ONE
+		// ambient road writes it AND pins the response the surface shaders
+		// evaluate it with, so a flat pair reads as the uniform fill it is
+		// (@see RenderBackend::applySceneAmbient)
+		RenderBackend::applySceneAmbient(this->mImpl->sceneManager,
+			upperHemisphere, lowerHemisphere);
 	}
 	//---------------------------------------------------------
 	Color const & RenderWorld::getAmbientHemisphereUpper() const
@@ -296,9 +296,8 @@ namespace Orkige
 					{ light, light->getVisible() });
 				light->setVisible(false);
 			}
-			sceneManager->setAmbientLight(Ogre::ColourValue::White,
-				Ogre::ColourValue::White, Ogre::Vector3::UNIT_Y,
-				RenderBackend::imageLightingEnvmapScale());
+			RenderBackend::applySceneAmbient(sceneManager,
+				Ogre::ColourValue::White, Ogre::ColourValue::White);
 		}
 		else
 		{
@@ -324,9 +323,9 @@ namespace Orkige
 				light->setVisible(visible);
 			}
 			this->mImpl->savedLightVisibility.clear();
-			sceneManager->setAmbientLight(this->mImpl->savedAmbientUpper,
-				this->mImpl->savedAmbientLower, Ogre::Vector3::UNIT_Y,
-				RenderBackend::imageLightingEnvmapScale());
+			RenderBackend::applySceneAmbient(sceneManager,
+				this->mImpl->savedAmbientUpper,
+				this->mImpl->savedAmbientLower);
 		}
 	}
 	//---------------------------------------------------------

@@ -928,6 +928,31 @@ namespace Orkige
 		//! so an ambient write never resets the intensity
 		static float imageLightingEnvmapScale();
 
+		//! @brief write the scene's two-colour ambient AND pin the response
+		//! the flavor's surface shaders evaluate it with. THE one road an
+		//! engine ambient write takes (it carries the envmapScale along, so
+		//! an ambient write never resets the image-lighting intensity).
+		//! @remarks The automatic response picks a cheaper FIXED-colour term
+		//! the moment the two hemisphere colours are EQUAL, and that term is
+		//! not the same brightness: the fixed lane multiplies the ambient by
+		//! the diffuse reflectance the datablock stores PRE-DIVIDED by pi,
+		//! while the hemisphere lane every unequal pair takes multiplies that
+		//! pi back in. One authored fill, a factor of pi apart, with the step
+		//! landing the moment two colours happen to match - so an ambient
+		//! swept from (0.5, 0.5) to (0.5, 0.499) would jump three-fold.
+		//! The facade declares the flat ambient to BE the equal-hemisphere
+		//! case (@see RenderWorld::setAmbientLight) and the other flavor's
+		//! per-pixel hemisphere stage evaluates it as ambient x albedo, so
+		//! this pins the hemisphere formula for every non-black fill: ONE
+		//! ambient response, whatever the two colours are. A BLACK fill stays
+		//! on the automatic mode, which disables the term outright - the
+		//! cheaper shader, and the mode a later atmosphere-driven write (the
+		//! atmosphere pushes its own unequal pair straight at the scene
+		//! manager) still resolves correctly from.
+		static void applySceneAmbient(Ogre::SceneManager* sceneManager,
+			Ogre::ColourValue const & upperHemisphere,
+			Ogre::ColourValue const & lowerHemisphere);
+
 		//! @brief a RenderLight became (isDirectional=true) or stopped being
 		//! (false) directional / is being destroyed. Maintains the directional
 		//! registry firstDirectionalLight reads and, while the atmosphere is

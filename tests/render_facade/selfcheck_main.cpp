@@ -2691,6 +2691,33 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		SELFCHECK(decalLum(decalBaseShot, px, py, baseLum),
 			"the decal baseline pixel decodes");
 
+		// THE AMBIENT RESPONSE IS ONE FORMULA. This frame is the flat case -
+		// one colour in both hemispheres - and a backend may hold a separate,
+		// cheaper lane for exactly that, reached by nothing more than the two
+		// colours comparing equal. A lane that answers a different BRIGHTNESS
+		// puts a step in the middle of a continuous parameter: sweeping the
+		// ground colour past the sky colour would jump the whole surface. So
+		// nudge the lower hemisphere a hair off the upper and require the
+		// same pixel back - measured on ONE flavor, so this holds whatever
+		// the other one does (@see RenderWorld::setAmbientHemisphere).
+		world->setAmbientHemisphere(Color(0.5f, 0.5f, 0.5f),
+			Color(0.495f, 0.495f, 0.495f));
+		SELFCHECK(renderFrames(renderSystem, 3),
+			"frames render with a barely-unequal hemisphere ambient");
+		const std::string nearFlatShot = outDir + "/ambient_flat_probe.png";
+		renderSystem->saveWindowContents(nearFlatShot);
+		float nearFlatLum = 0;
+		SELFCHECK(decalLum(nearFlatShot, px, py, nearFlatLum),
+			"the near-flat ambient pixel decodes");
+		std::printf("render_facade_selfcheck: ambient - flat %.3f, "
+			"near-flat %.3f\n", baseLum, nearFlatLum);
+		SELFCHECK(std::fabs(nearFlatLum - baseLum) < 0.02f,
+			"an equal-hemisphere ambient fills a surface like a "
+			"barely-unequal one");
+		world->setAmbientLight(Color(0.5f, 0.5f, 0.5f));	// restore the flat fill
+		SELFCHECK(renderFrames(renderSystem, 2),
+			"frames render with the flat ambient restored");
+
 		// place a dark blob mark over the surface
 		optr<RenderNode> decalNode = world->createNode("selfcheck.decalNode");
 		decalNode->setPosition(decalCentre + Vec3(0, 2, 0));
