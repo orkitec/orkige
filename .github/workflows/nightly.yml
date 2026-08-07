@@ -503,7 +503,7 @@ jobs:
       # the version, so the archive entry and its title name one day
       dated_tag: ${{ steps.identity.outputs.dated_tag }}
     steps:
-      - name: Read the last completed CI run on main
+      - name: Read the required checks on main's head
         id: probe
         env:
           GH_TOKEN: ${{ github.token }}
@@ -511,33 +511,44 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -uo pipefail
-          # gh + jq ship on every hosted runner; no action dependency here
-          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?branch=main&status=completed&per_page=1" \
-            > runs.json || { echo "::warning::could not query the CI runs"; echo "green=false" >> "$GITHUB_OUTPUT"; exit 0; }
-          count=$(jq -r '.workflow_runs | length' runs.json)
-          conclusion=""
-          sha=""
-          url=""
-          number=""
-          if [ "$count" != "0" ]; then
-            conclusion=$(jq -r '.workflow_runs[0].conclusion' runs.json)
-            sha=$(jq -r '.workflow_runs[0].head_sha' runs.json)
-            url=$(jq -r '.workflow_runs[0].html_url' runs.json)
-            number=$(jq -r '.workflow_runs[0].run_number' runs.json)
+          # main never runs the CI workflow: the fast-forward moves the branch
+          # pointer with the workflow token, which triggers nothing, and the
+          # verdicts travel ON the commit as check runs from its development
+          # matrix. So the green question is asked of the HEAD COMMIT's check
+          # runs against the protection's own required-context list - the same
+          # truth branch protection enforces. gh + jq ship on every hosted
+          # runner; no action dependency here.
+          sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha') \
+            || { echo "::warning::could not resolve main"; echo "green=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          gh api "repos/${GITHUB_REPOSITORY}/branches/main/protection/required_status_checks" \
+            --jq '.contexts[]' > required.txt \
+            || { echo "::warning::could not read the required contexts"; echo "green=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs?per_page=100" --paginate \
+            --jq '.check_runs[] | "\(.conclusion)\t\(.name)"' > checks.txt \
+            || { echo "::warning::could not read the check runs"; echo "green=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          green=true
+          missing=""
+          while IFS= read -r context; do
+            if ! grep -Fq "$(printf 'success\t%s' "$context")" checks.txt; then
+              green=false
+              missing="${missing}${missing:+, }${context}"
+            fi
+          done < required.txt
+          required_count=$(wc -l < required.txt | tr -d ' ')
+          if [ "${required_count}" = "0" ]; then
+            # protection with no contexts would make every commit read green;
+            # that is a configuration hole, not a verdict
+            green=false
+            missing="no required contexts configured"
           fi
-          green=false
-          if [ "$count" = "0" ]; then
-            echo "no completed CI run on main - nothing to publish from"
-            echo "::warning::no completed CI run on main; skipping the binaries"
-          elif [ "$conclusion" = "success" ]; then
-            green=true
-            echo "CI run #${number} on ${sha} is green: ${url}"
+          if [ "$green" = "true" ]; then
+            echo "all ${required_count} required checks green on ${sha}"
           else
-            echo "CI run #${number} on ${sha} concluded '${conclusion}': ${url}"
-            echo "::warning::the last CI run on main concluded '${conclusion}' (run #${number}, ${url}) - skipping the binaries; a red tree is never published"
+            echo "not green on ${sha}: ${missing}"
+            echo "::warning::main's head ${sha} is missing green required checks (${missing}) - skipping the binaries; a red tree is never published"
           fi
-          verdict="CI run #${number:-n/a} ${conclusion:-none}"
-          skipped_reason="the last completed CI run on main concluded \`${conclusion:-none}\`"
+          verdict="required checks on $(printf '%.9s' "${sha}"): $([ "$green" = "true" ] && echo all green || echo "${missing}")"
+          skipped_reason="main's head is missing green required checks (\`${missing:-none}\`)"
           # THE MARKER, read once and used TWICE: the commit the standing nightly
           # was built from is both the unchanged-tree comparison below and the
           # changelog's lower bound in the build and publish jobs. It lives in the
