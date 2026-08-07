@@ -14,6 +14,7 @@
 #include "ExportProcess.h"
 #include "ExportProject.h"
 #include "ExportSettings.h"
+#include "ExportWindowsSign.h"
 
 #include <core_util/String.h>
 
@@ -74,6 +75,13 @@ namespace OrkigeExport
 		//! agent does not hold, the same rule that keeps `ios-ipa` and
 		//! `android-aab` off the endpoint.
 		MacosSigningOptions	macosSigning;
+		//! Windows only: seal the packaged executable with an Authenticode
+		//! signature. Default off - a Windows package is unsigned and this
+		//! request is byte-identical to one that never named it (@see
+		//! ExportWindowsSign.h). Deliberately NOT an `export_project` field,
+		//! for the reason @ref macosSigning is not one: a signed distribution
+		//! build needs machine-local secrets a remote agent does not hold.
+		WindowsSigningOptions	windowsSigning;
 		//! android-aab only: stop after the unsigned bundle module
 		bool			unsignedBundleModule = false;
 		//! a TEST BUILD: carry the project's `tests/` suite into the payload

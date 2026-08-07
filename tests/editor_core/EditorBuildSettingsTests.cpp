@@ -20,6 +20,7 @@
 #ifdef ORKIGE_HAVE_EXPORTER
 #include <ExportMacosSign.h>
 #include <ExportSettings.h>
+#include <ExportWindowsSign.h>
 #endif
 
 #include <algorithm>
@@ -285,9 +286,10 @@ TEST_CASE("a password has no key, so it cannot be stored", "[buildsettings]")
 TEST_CASE("only an Applied cell contributes storable keys", "[buildsettings]")
 {
 	const std::vector<Orkige::String> keys = machineSettingKeys();
-	// the two iOS pairs, the Android release trio, and the macOS Developer ID
-	// identity plus the two notarization routes' identifiers
-	CHECK(keys.size() == 13);
+	// the two iOS pairs, the Android release trio, the macOS Developer ID
+	// identity plus the two notarization routes' identifiers, and the Windows
+	// pair of credential routes with the timestamp authority beside them
+	CHECK(keys.size() == 16);
 	for(BuildTargetCell const & cell : buildTargetMatrix())
 	{
 		if(cell.state == BuildCellState::Applied) { continue; }
@@ -333,6 +335,12 @@ TEST_CASE("the model names the exporter's own environment variables",
 		OrkigeExport::NOTARY_APPLE_ID_ENV);
 	expected.emplace_back("macos.distribution.notaryTeamId",
 		OrkigeExport::NOTARY_TEAM_ID_ENV);
+	expected.emplace_back("windows.distribution.thumbprint",
+		OrkigeExport::WINDOWS_THUMBPRINT_ENV);
+	expected.emplace_back("windows.distribution.certificate",
+		OrkigeExport::WINDOWS_CERTIFICATE_ENV);
+	expected.emplace_back("windows.distribution.timestampUrl",
+		OrkigeExport::WINDOWS_TIMESTAMP_URL_ENV);
 
 	std::map<Orkige::String, Orkige::String> byKey;
 	std::vector<Orkige::String> secretVariables;
@@ -367,6 +375,9 @@ TEST_CASE("the model names the exporter's own environment variables",
 		secretVariables.end());
 	CHECK(std::find(secretVariables.begin(), secretVariables.end(),
 		Orkige::String(OrkigeExport::NOTARY_APP_PASSWORD_ENV)) !=
+		secretVariables.end());
+	CHECK(std::find(secretVariables.begin(), secretVariables.end(),
+		Orkige::String(OrkigeExport::WINDOWS_CERTIFICATE_PASSWORD_ENV)) !=
 		secretVariables.end());
 }
 #endif
@@ -522,8 +533,16 @@ TEST_CASE("credentials map onto the export request's own fields",
 	values["macos.distribution.notaryIssuer"] = "69a6de70-issuer";
 	values["macos.distribution.notaryAppleId"] = "someone@example.com";
 	values["macos.distribution.notaryTeamId"] = "TEAM123456";
+	values["windows.distribution.thumbprint"] = "A1B2C3D4E5F6";
+	values["windows.distribution.certificate"] = "/keys/publisher.pfx";
+	values["windows.distribution.timestampUrl"] =
+		"http://timestamp.example.invalid";
 
 	const BuildCredentials credentials = buildCredentialsFrom(values);
+	CHECK(credentials.windowsThumbprint == "A1B2C3D4E5F6");
+	CHECK(credentials.windowsCertificate == "/keys/publisher.pfx");
+	CHECK(credentials.windowsTimestampUrl ==
+		"http://timestamp.example.invalid");
 	CHECK(credentials.macosIdentity == "Developer ID Application: me");
 	CHECK(credentials.notaryKey == "/keys/AuthKey.p8");
 	CHECK(credentials.notaryKeyId == "ABCDE12345");

@@ -145,6 +145,22 @@ namespace OrkigeEditor
 				{
 					command.credentials.notaryTeamId = value;
 				}
+				else if(argument == "--windows-certificate")
+				{
+					command.credentials.windowsCertificate = value;
+				}
+				else if(argument == "--windows-thumbprint")
+				{
+					command.credentials.windowsThumbprint = value;
+				}
+				else if(argument == "--windows-timestamp-url")
+				{
+					command.credentials.windowsTimestampUrl = value;
+				}
+				else if(argument == "--signtool")
+				{
+					command.credentials.signtool = value;
+				}
 				else
 				{
 					return refuse(command,
@@ -173,6 +189,15 @@ namespace OrkigeEditor
 				return refuse(command, "a macOS signing credential was named "
 					"without --sign (or --notarize), so nothing would be "
 					"signed with it");
+			}
+			if(!command.signRelease &&
+				(!command.credentials.windowsCertificate.empty() ||
+				 !command.credentials.windowsThumbprint.empty() ||
+				 !command.credentials.windowsTimestampUrl.empty() ||
+				 !command.credentials.signtool.empty()))
+			{
+				return refuse(command, "a Windows signing credential was named "
+					"without --sign, so nothing would be signed with it");
 			}
 			return command;
 		}
@@ -384,6 +409,10 @@ namespace OrkigeEditor
 			"                 [--bundletool <path>]\n"
 			"                 [--sign | --notarize] "
 			"[--macos-identity <name>]\n"
+			"                 [--windows-thumbprint <sha1> | "
+			"--windows-certificate <pfx>]\n"
+			"                 [--windows-timestamp-url <url>] "
+			"[--signtool <path>]\n"
 			"                 [--with-tests [--test-filter <substring>]]\n"
 			"                 Packages a project with this installation's own\n"
 			"                 engine source. Prints "

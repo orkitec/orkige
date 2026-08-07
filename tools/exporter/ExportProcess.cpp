@@ -10,6 +10,7 @@
 
 #include "ExportFiles.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <vector>
 
@@ -239,5 +240,19 @@ namespace OrkigeExport
 		{
 			return runProcess(arguments);
 		};
+	}
+	//---------------------------------------------------------
+	Orkige::String redactedCommandLine(SignCommand const & command)
+	{
+		std::vector<Orkige::String> shown;
+		shown.reserve(command.arguments.size());
+		for(Orkige::String const & argument : command.arguments)
+		{
+			const bool secret = !argument.empty() &&
+				std::find(command.secrets.begin(), command.secrets.end(),
+					argument) != command.secrets.end();
+			shown.push_back(secret ? Orkige::String("<redacted>") : argument);
+		}
+		return commandLine(shown);
 	}
 }

@@ -94,6 +94,8 @@ orkige_editor export --project <dir>
                      [--notary-key <path>] [--notary-key-id <id>]
                      [--notary-issuer <id>]
                      [--notary-apple-id <id>] [--notary-team-id <id>]
+                     [--windows-thumbprint <sha1> | --windows-certificate <pfx>]
+                     [--windows-timestamp-url <url>] [--signtool <path>]
                      [--with-tests [--test-filter <substring>]]
 ```
 
@@ -137,21 +139,33 @@ inside an archive the runner cannot walk, and is refused by name rather than
 passing over zero tests. `--test-filter` without `--with-tests` is a usage error, because an
 option that silently did nothing would be worse.
 
-### `--sign` / `--notarize`: a macOS package for other people's Macs
+### `--sign`: a desktop package for other people's machines
+
+`--sign` is **one ask on both desktops**, and `--platform` decides whose rules it
+means.
 
 A `macos` export is signed **ad-hoc** unless asked otherwise, which runs on this
 machine and is refused on anyone else's. `--sign` seals it with a Developer ID
 identity and the hardened runtime; `--notarize` additionally submits it to Apple
 and staples the ticket, so a downloaded copy opens with no network round trip.
-Missing credentials refuse by name and package nothing —
-[desktop-export.md](desktop-export.md) has the credential table and the exact
-command sequence.
+
+A `windows` export is **unsigned** unless asked otherwise, and a downloaded copy
+meets a SmartScreen warning. `--sign` writes an Authenticode signature over
+every binary in the package, made with a certificate from this machine's store
+(`--windows-thumbprint`, the route that carries no password at all) or from a
+`.pfx` (`--windows-certificate`), and countersigned through RFC 3161. Nothing
+there corresponds to notarization, so `--notarize` on a Windows package refuses
+by name.
+
+Missing credentials refuse by name and package nothing, and so does a credential
+aimed at the other platform's gate — [desktop-export.md](desktop-export.md) has
+both credential tables and both exact command sequences.
 
 ### The store platforms are here
 
 `ios-ipa` and `android-aab` are reachable from this door and deliberately **not**
-over MCP — as is a signed macOS package: they need machine-local secrets a
-remote agent does not hold. That
+over MCP — as is a signed macOS or Windows package: they need machine-local
+secrets a remote agent does not hold. That
 distinction is the whole reason [store-release.md](store-release.md) calls store
 packaging a command-line operation — and on an installed Orkige, *this* is that
 command line.

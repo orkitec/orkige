@@ -59,6 +59,28 @@ namespace OrkigeExport
 	//! @brief find @p name on the PATH, or "" when it is not there (the
 	//! `which` an option resolver takes)
 	Orkige::String findOnPath(Orkige::String const & name);
+
+	//! @brief one planned command, plus the values that must never be echoed.
+	//! @remarks Signing tools take their credentials on an argv and offer no
+	//! alternative, so the values that must be replaced before a line is
+	//! logged travel WITH the command rather than being remembered somewhere
+	//! else. That is the same problem on every platform, which is why the type
+	//! lives beside the runner instead of inside one platform's signing file.
+	struct SignCommand
+	{
+		std::vector<Orkige::String>	arguments;
+		//! the credential VALUES inside @ref arguments (@see
+		//! redactedCommandLine)
+		std::vector<Orkige::String>	secrets;
+		//! what this step is doing, for the progress line ("signing ...")
+		Orkige::String				what;
+	};
+
+	//! @brief @p command as it may appear in a log: every credential value
+	//! replaced by `<redacted>`. PURE, and the only reason a credentialed
+	//! command is echoed at all - a step whose command nobody can see is a step
+	//! nobody can debug.
+	Orkige::String redactedCommandLine(SignCommand const & command);
 }
 
 #endif //__ExportProcess_h__31_7_2026__12_00_00__

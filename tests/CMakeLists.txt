@@ -3857,6 +3857,26 @@ if(TARGET orkige_player)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(export_windows_tests${ORKIGE_FLAVOR_TEST_SUFFIX}
             PROPERTIES LABELS integration SKIP_RETURN_CODE 77 TIMEOUT 900)
+
+        # ...and the third question, the macOS sibling's: does a package meant
+        # for OTHER people's PCs refuse rather than emit a half-signed
+        # executable, and - where a code-signing certificate exists - does the
+        # Authenticode signature it writes pass the policy an operating system
+        # applies to a program? The four refusal shapes need no credentials
+        # and run everywhere Windows runs; the signature leg SKIPS (77) on a
+        # machine that names no certificate rather than passing over nothing.
+        add_test(NAME export_windows_signed${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_export_sign_windows_test.py"
+                --repo "${Orkige_SOURCE_DIR}"
+                --exporter "$<TARGET_FILE:orkige_export>"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+                --engine-build "${CMAKE_BINARY_DIR}"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/windows-signed"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(export_windows_signed${ORKIGE_FLAVOR_TEST_SUFFIX}
+            PROPERTIES LABELS integration TIMEOUT 900
+            SKIP_RETURN_CODE 77)
     endif()
 
     # the HTTP client on a REAL mobile runtime. The desktop suite proves the

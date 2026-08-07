@@ -198,6 +198,57 @@ TEST_CASE("export signs a macOS package only when asked", "[editorcli]")
 	REQUIRE(password.usageError);
 }
 
+TEST_CASE("export signs a Windows package only when asked", "[editorcli]")
+{
+	// the default: an executable nobody asked to sign is the unsigned one
+	const EditorCliCommand plain = parse(
+		{ "export", "--project", "/g", "--platform", "windows" });
+	REQUIRE_FALSE(plain.usageError);
+	REQUIRE_FALSE(plain.signRelease);
+	REQUIRE(plain.credentials.windowsThumbprint.empty());
+	REQUIRE(plain.credentials.windowsCertificate.empty());
+
+	// --sign is ONE ask on both desktops; which platform's rules it means is
+	// decided downstream by --platform, so the flag spells the same here
+	const EditorCliCommand store = parse({
+		"export", "--project", "/g", "--platform", "windows", "--sign",
+		"--windows-thumbprint", "A1B2C3D4E5F6",
+		"--output", "/out" });
+	REQUIRE_FALSE(store.usageError);
+	REQUIRE(store.signRelease);
+	REQUIRE_FALSE(store.notarize);
+	REQUIRE(store.credentials.windowsThumbprint == "A1B2C3D4E5F6");
+	// the valueless flag did not eat the option behind it
+	REQUIRE(store.outputDirectory == "/out");
+
+	const EditorCliCommand file = parse({
+		"export", "--project", "/g", "--platform", "windows", "--sign",
+		"--windows-certificate", "/keys/publisher.pfx",
+		"--windows-timestamp-url", "http://timestamp.example.invalid",
+		"--signtool", "C:/sdk/signtool.exe" });
+	REQUIRE_FALSE(file.usageError);
+	REQUIRE(file.credentials.windowsCertificate == "/keys/publisher.pfx");
+	REQUIRE(file.credentials.windowsTimestampUrl ==
+		"http://timestamp.example.invalid");
+	// the tool is a PROGRAM, not a credential - it has a flag on both doors
+	// like --bundletool, and no settings key at all
+	REQUIRE(file.credentials.signtool == "C:/sdk/signtool.exe");
+
+	// a credential named with no signing asked for would silently do nothing
+	const EditorCliCommand dangling = parse({
+		"export", "--project", "/g", "--platform", "windows",
+		"--windows-thumbprint", "A1B2C3D4E5F6" });
+	REQUIRE(dangling.usageError);
+	REQUIRE(dangling.error.find("--sign") != std::string::npos);
+
+	// ...and there is no flag for the certificate password either, for the
+	// reason the app-specific one has none
+	const EditorCliCommand password = parse({
+		"export", "--project", "/g", "--platform", "windows", "--sign",
+		"--windows-password", "hunter2" });
+	REQUIRE(password.usageError);
+}
+
 TEST_CASE("export --with-tests packages a test build", "[editorcli]")
 {
 	SECTION("the flag is valueless and does not eat the next argument")

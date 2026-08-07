@@ -256,22 +256,20 @@ namespace OrkigeExport
 				"(--signing-identity / --distribution-identity). See "
 				"Docs/ios-signing.md";
 		}
+		if(platform == "windows")
+		{
+			// --sign alone routes to the Authenticode gate and never reaches
+			// here; what does is --notarize, or a macOS credential aimed at a
+			// Windows package
+			return "--notarize and --macos-identity are the Apple gate; a "
+				"Windows package is Authenticode-signed with --sign plus "
+				"--windows-thumbprint or --windows-certificate. Nothing there "
+				"corresponds to notarization - an RFC 3161 timestamp is a "
+				"countersignature rather than a verdict, so there is nothing "
+				"to submit and nothing to staple. See Docs/desktop-export.md";
+		}
 		return "--sign and --notarize apply to a macOS package; '" + platform +
 			"' is signed by its own platform's rules";
-	}
-	//---------------------------------------------------------
-	String redactedCommandLine(SignCommand const & command)
-	{
-		std::vector<String> shown;
-		shown.reserve(command.arguments.size());
-		for(String const & argument : command.arguments)
-		{
-			const bool secret = !argument.empty() &&
-				std::find(command.secrets.begin(), command.secrets.end(),
-					argument) != command.secrets.end();
-			shown.push_back(secret ? String("<redacted>") : argument);
-		}
-		return commandLine(shown);
 	}
 	//---------------------------------------------------------
 	std::vector<String> codesignArguments(String const & target,

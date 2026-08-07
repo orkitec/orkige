@@ -175,22 +175,9 @@ namespace OrkigeExport
 	Orkige::String macosSigningPlatformRefusal(Orkige::String const & platform);
 
 	//--- the commands ------------------------------------------
-
-	//! @brief one planned command, plus the values that must never be echoed
-	struct SignCommand
-	{
-		std::vector<Orkige::String>	arguments;
-		//! the credential VALUES inside @ref arguments (@see redactedCommandLine)
-		std::vector<Orkige::String>	secrets;
-		//! what this step is doing, for the progress line ("signing ...")
-		Orkige::String				what;
-	};
-
-	//! @brief @p command as it may appear in a log: every credential value
-	//! replaced by `<redacted>`. PURE, and the only reason a credentialed
-	//! command is echoed at all - a step whose command nobody can see is a step
-	//! nobody can debug.
-	Orkige::String redactedCommandLine(SignCommand const & command);
+	// @ref SignCommand and @ref redactedCommandLine live in ExportProcess.h:
+	// carrying a credential on an argv is not a macOS problem, and the
+	// Authenticode gate redacts through the same one (@see ExportWindowsSign.h)
 
 	//! @brief the `codesign` invocation for ONE binary or bundle. PURE.
 	//! @remarks The real form carries the hardened runtime and a secure

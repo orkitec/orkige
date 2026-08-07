@@ -175,9 +175,9 @@ TEST_CASE("a password has a vault key and no file key", "[secretstore]")
 TEST_CASE("the three vocabularies are disjoint", "[secretstore]")
 {
 	const std::vector<Orkige::String> vaultKeys = secretVaultKeys();
-	// the Android keystore + key passwords, and the notarization login's
-	// app-specific password
-	REQUIRE(vaultKeys.size() == 3);
+	// the Android keystore + key passwords, the notarization login's
+	// app-specific password, and the Windows certificate file's
+	REQUIRE(vaultKeys.size() == 4);
 	for(Orkige::String const & key : vaultKeys)
 	{
 		INFO(key);

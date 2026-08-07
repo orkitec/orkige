@@ -720,5 +720,11 @@ OrkigeExport::ExportRequest& applyBuildCredentials(
 	request.macosSigning.notaryIssuer = credentials.notaryIssuer;
 	request.macosSigning.notaryAppleId = credentials.notaryAppleId;
 	request.macosSigning.notaryTeamId = credentials.notaryTeamId;
+	// ...and the Windows Authenticode names, under exactly the same rule: what
+	// they DO is decided by the request's signing flag, which only the command
+	// line sets (a Build menu export is unsigned, @see ExportWindowsSign.h)
+	request.windowsSigning.certificate = credentials.windowsCertificate;
+	request.windowsSigning.thumbprint = credentials.windowsThumbprint;
+	request.windowsSigning.timestampUrl = credentials.windowsTimestampUrl;
 	return request;
 }

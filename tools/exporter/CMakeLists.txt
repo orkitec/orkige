@@ -49,6 +49,8 @@ add_library(orkige_exporter STATIC
     ExportWindows.cpp
     ExportMacosSign.h
     ExportMacosSign.cpp
+    ExportWindowsSign.h
+    ExportWindowsSign.cpp
     ExportZip.h
     ExportZip.cpp
     ExportIos.h

@@ -307,6 +307,20 @@ namespace OrkigeEditor
 		Orkige::String	notaryIssuer;
 		Orkige::String	notaryAppleId;
 		Orkige::String	notaryTeamId;
+		//! the Windows Authenticode material a signed desktop export uses. The
+		//! certificate PASSWORD is absent for the reason the app-specific one
+		//! is: it is a secret, so it lives in the vault and reaches the signing
+		//! step from the environment - never through a struct on its way to a
+		//! command line. A thumbprint is a public hash and is not one.
+		Orkige::String	windowsCertificate;
+		Orkige::String	windowsThumbprint;
+		Orkige::String	windowsTimestampUrl;
+		//! `signtool.exe` named outright. A PROGRAM rather than a credential -
+		//! the sibling of @ref bundletool - so it carries no matrix slot and no
+		//! settings key: a machine whose Windows SDK is where the search looks
+		//! never needs it, and one whose is not says so once, on the command
+		//! line or in the environment.
+		Orkige::String	signtool;
 	};
 
 	//! @brief the credentials in @p values, whichever of them are set (PURE)
