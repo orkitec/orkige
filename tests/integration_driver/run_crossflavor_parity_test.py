@@ -17,6 +17,12 @@ water/mirror bands, terrain band) between the two images:
     bright sun highlight (the specular streak - its absence on one flavor
     was a real regression).
 
+A profile may also PIN the capture: a scene whose behaviour differs between
+the flavors by DESIGN gets that knob fixed to one value on both sides, so the
+comparison reads the look and not the designed capability difference (which
+stays gated per-flavor by its own probe). The pin travels with the recipe,
+so every road captures under it.
+
 Capturing and comparing are separable, because one machine does not always
 hold both flavors:
 
@@ -62,6 +68,8 @@ from run_benchmark_pixel_test import decode_png, pixel  # noqa: E402
 #:   lake        sky 0      terrain 2      water 6
 #:   mirrorlake  sky 0      shore 3        watermirror 7 left, 8 right
 #:               rockmirror 13             water_open 35
+#:   lumens      sky 0.0    terrain 0.2    pools 0.1   foreground 0.2
+#:               (at the pinned equal lamp count - see the profile)
 #:
 #: The CI pair is a different software rasterizer on each side and measures its
 #: own numbers on the parity job; the corridors below sit at roughly twice the
@@ -75,6 +83,14 @@ from run_benchmark_pixel_test import decode_png, pixel  # noqa: E402
 #: deterministic capture recipe, wide enough for the documented residual
 #: flavor differences and tight enough that a black/inverted/washed region
 #: on one flavor (deltas 120+) or a mirror-strength drift fails.
+#:
+#: A profile may also carry `env`: extra environment a capture of THAT scene
+#: boots under, applied on both roads (the run-both developer road and the
+#: per-flavor `--capture` a build matrix uses), because a pin is part of the
+#: recipe rather than of the comparison. It exists for one situation only - a
+#: scene whose default behaviour differs between the flavors BY DESIGN, where
+#: comparing the defaults would measure the designed difference instead of the
+#: look. A scene with no `env` boots byte-identically to before.
 PROFILES = {
     # the refraction-only lake framing: the camera looks low ACROSS the water
     # toward the sun - sky above, the shore island band mid-frame (sampled
@@ -151,6 +167,60 @@ PROFILES = {
         },
         "streak": True,
     },
+    # the NIGHT vignette, and the only scene here whose look is built out of
+    # MANY dynamic lights: a moonlit terrace under coloured lamp pools.
+    #
+    # THE PIN. The director's lamp ramp climbs to the flavor's OWN queried
+    # light budget (engine:getLightBudget - next 96, classic 30), which is a
+    # designed capability difference, not a look divergence. Left at their
+    # defaults the two frames differ by the lamp COUNT alone: measured sky 0,
+    # terrain 18, pools 29, foreground 21 - a corridor wide enough to pass
+    # that would gate nothing. A look-parity gate measures LOOK, so this
+    # profile pins BOTH flavors to an equal lamp count
+    # (benchmark.lightCeiling 12, seeded through `env` below) and compares the
+    # same picture on both sides. The capability itself stays covered
+    # per-flavor by the lumens probe in run_benchmark_scene_probe.py, which
+    # asserts each flavor ramps to its own queried budget and never past it -
+    # so pinning here removes nothing from the suite.
+    #
+    # At the pinned count the frames agree to a max REGION delta of 0.2 on the
+    # developer pair - sky 0.0, terrain 0.2, pools 0.1, foreground 0.2, whole
+    # frame max channel delta 18 with no pixel over 48. Twice that would be a
+    # sub-level corridor, and the pair this gate runs on in CI is a different
+    # software rasterizer on each side, which the one directly comparable
+    # reading in this file measures at 7 where the developer pair reads 0 (the
+    # lake sky band). So each corridor here is twice the LARGER of the two:
+    # twice its own measurement, floored at twice that recorded 7. All four
+    # measurements sit under the floor, so all four corridors are 14.
+    #
+    # That is still a tight gate for this scene, and the pin is what makes it
+    # so: the designed per-flavor difference the pin removes measures 17.9 /
+    # 28.7 / 20.5 on the three lit bands, ABOVE the corridor - so if the seed
+    # ever stopped landing on one side, this gate fails rather than quietly
+    # comparing two different pictures. A black night, a lost moonlit fill or
+    # an unlit pool (deltas 60-100+) breaches by a wide margin.
+    # No streak contract: there is no sun and no water here.
+    "lumens.oscene": {
+        "regions": {
+            # the night sky above the terrace - the darkest band, and the one
+            # that says this is still a NIGHT (measures 0.0)
+            "sky": (0.05, 0.06, 0.95, 0.28, 14.0),
+            # the moonlit terrain band: the overhead fill's own reading
+            # (measures 0.2)
+            "terrain": (0.10, 0.46, 0.90, 0.53, 14.0),
+            # the coloured lamp pools - the many-lights band the pin exists
+            # for, and the brightest thing this scene has to say (measures 0.1)
+            "pools": (0.20, 0.60, 0.80, 0.78, 14.0),
+            # the near foreground, lit by the closest lamps (measures 0.2)
+            "foreground": (0.10, 0.85, 0.90, 0.98, 14.0),
+        },
+        "streak": False,
+        # equal lamp count on both flavors - see THE PIN above. Seeded as a
+        # cvar boot override (underscores become dots), which is held and
+        # re-applied when the director registers the cvar, so the seed lands
+        # whatever order the script runs in
+        "env": {"ORKIGE_CVAR_benchmark_lightCeiling": "12"},
+    },
 }
 
 
@@ -164,8 +234,16 @@ def skip(message):
     sys.exit(77)
 
 
-def capture(player, repo, scene, shot, out_dir, frames):
-    env = dict(os.environ)
+def capture_environment(scene, shot, out_dir, frames, base=None):
+    """The environment one capture boots under (pure).
+
+    Split out of `capture` so the recipe - the deterministic freeze every
+    scene shares, plus the scene's own pins - can be read and tested without
+    booting a player. The scene's `env` is applied LAST and keyed separately
+    from the shared seed, so a profile pin can never silently drop the
+    determinism the whole comparison rests on.
+    """
+    env = dict(os.environ if base is None else base)
     env.update({
         "ORKIGE_DEMO_FRAMES": str(frames),
         "ORKIGE_DEMO_SCREENSHOT": shot,
@@ -174,6 +252,14 @@ def capture(player, repo, scene, shot, out_dir, frames):
         # deterministic frame: freeze the wall-time orbit, un-cap the ramp
         "ORKIGE_CVARS": "benchmark.rampBudgetMs=100000,benchmark.cameraOrbit=0",
     })
+    profile = PROFILES.get(os.path.basename(scene))
+    if profile:
+        env.update(profile.get("env", {}))
+    return env
+
+
+def capture(player, repo, scene, shot, out_dir, frames):
+    env = capture_environment(scene, shot, out_dir, frames)
     result = subprocess.run(
         [player, scene, "--project", "projects/benchmark"],
         cwd=repo, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -443,6 +529,57 @@ def expect_refusal(what, argv, names):
         raise AssertionError(f"{what} refused without naming {names}: {said}")
 
 
+def selftest_capture_recipe():
+    """The recipe every capture boots under, and the scenes that pin it."""
+    base = {"PATH": "/usr/bin"}
+    shared = ("ORKIGE_DEMO_FRAMES", "ORKIGE_DEMO_SCREENSHOT",
+              "ORKIGE_PROGRESS_RESET", "ORKIGE_PROGRESS_DIR", "ORKIGE_CVARS")
+
+    # every scene gets the deterministic freeze, and the caller's environment
+    # survives it
+    for scene in ("scenes/lake.oscene", "scenes/lumens.oscene",
+                  "scenes/nowhere.oscene"):
+        env = capture_environment(scene, "/tmp/s.png", "/tmp/d", 90, base)
+        assert env["PATH"] == "/usr/bin", scene
+        for key in shared:
+            assert key in env, (scene, key)
+        assert env["ORKIGE_DEMO_FRAMES"] == "90", scene
+        assert "benchmark.cameraOrbit=0" in env["ORKIGE_CVARS"], scene
+
+    # the two water scenes carry NO pin: their recipe is byte-identical to
+    # what it has always been, which is what keeps their captures comparable
+    # with the ones already measured
+    plain = capture_environment("scenes/lake.oscene", "/tmp/s.png", "/tmp/d",
+                                90, base)
+    mirror = capture_environment("scenes/mirrorlake.oscene", "/tmp/s.png",
+                                 "/tmp/d", 90, base)
+    reference = capture_environment("scenes/unprofiled.oscene", "/tmp/s.png",
+                                    "/tmp/d", 90, base)
+    assert plain == reference, plain
+    assert mirror == reference, mirror
+
+    # the night scene pins the lamp count on BOTH flavors, and the pin is an
+    # addition - it never displaces the shared deterministic seed
+    night = capture_environment("scenes/lumens.oscene", "/tmp/s.png", "/tmp/d",
+                                90, base)
+    assert night["ORKIGE_CVAR_benchmark_lightCeiling"] == "12", night
+    assert night["ORKIGE_CVARS"] == reference["ORKIGE_CVARS"], night
+    assert set(night) - set(reference) == {"ORKIGE_CVAR_benchmark_lightCeiling"}
+
+    # and the profile itself: four measured regions, no streak to look for
+    profile = PROFILES["lumens.oscene"]
+    assert profile["streak"] is False
+    assert set(profile["regions"]) == {"sky", "terrain", "pools", "foreground"}
+    for name, (fx0, fy0, fx1, fy1, tolerance) in profile["regions"].items():
+        assert 0.0 <= fx0 < fx1 <= 1.0, name
+        assert 0.0 <= fy0 < fy1 <= 1.0, name
+        # tight enough to breach on the designed per-flavor lamp-count
+        # difference the pin removes (measured 17.9 on the least of the three
+        # lit bands), so an unlanded pin fails this gate instead of quietly
+        # comparing two different pictures
+        assert 0.0 < tolerance < 17.0, name
+
+
 def selftest():
     scratch = tempfile.mkdtemp(prefix="orkige_crossflavor_selftest_")
     shot_next = os.path.join(scratch, "next.png")
@@ -452,6 +589,7 @@ def selftest():
     # through this driver's own decoder)
     parity_diff.selftest_pure()
     parity_diff.selftest_roundtrip(decode_png, scratch)
+    selftest_capture_recipe()
 
     # the mirror scene carries the streak contract like the lake does, so
     # every fixture pokes a bright "sun" pixel into the streak band; the
@@ -495,6 +633,27 @@ def selftest():
                       "--shot-next", shot_next,
                       "--shot-classic", shot_classic])[0] == 0
     assert not os.path.exists(diff_image), "a passing pair kept a stale diff"
+
+    # a scene with NO streak contract is compared on its regions alone: the
+    # night vignette has no sun and no water, so a frame carrying no bright
+    # highlight anywhere is a pass there and would be a failure on the water
+    # scenes
+    night = "scenes/lumens.oscene"
+    dark_next = os.path.join(scratch, "night_next.png")
+    dark_classic = os.path.join(scratch, "night_classic.png")
+    write_png(dark_next, 64, 64, (20, 24, 28))
+    write_png(dark_classic, 64, 64, (20, 24, 28))
+    code, said = run_quiet(["--compare-shots", "--scene", night,
+                            "--shot-next", dark_next,
+                            "--shot-classic", dark_classic])
+    assert code == 0, said
+    assert "sun-streak" not in said, said
+    # ... and its regions still gate
+    write_png(dark_classic, 64, 64, (140, 24, 28))
+    code, said = run_quiet(["--compare-shots", "--scene", night,
+                            "--shot-next", dark_next,
+                            "--shot-classic", dark_classic])
+    assert code == 1 and "diverges between flavors" in said, said
 
     # captures of different sizes are not comparable
     odd = os.path.join(scratch, "odd.png")

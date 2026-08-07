@@ -3429,6 +3429,24 @@ if(TARGET orkige_player)
                 WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
             set_tests_properties(benchmark_crossflavor_parity_mirror PROPERTIES
                 LABELS integration TIMEOUT 900 SKIP_RETURN_CODE 77)
+            # the NIGHT sibling: the many-lights vignette, the one scene whose
+            # look is built out of dynamic lights rather than one sun. Its
+            # profile PINS both flavors to an equal lamp count, because the
+            # ramp otherwise climbs to each flavor's own queried light budget
+            # and the comparison would measure that designed difference
+            # instead of the look (the per-flavor capability stays gated by
+            # player_benchmark_lumens_probe).
+            add_test(NAME benchmark_crossflavor_parity_lumens
+                COMMAND python3
+                    "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_crossflavor_parity_test.py"
+                    --repo "${Orkige_SOURCE_DIR}"
+                    --player-next "$<TARGET_FILE:orkige_player>"
+                    --player-classic "${Orkige_SOURCE_DIR}/${ORKIGE_PARITY_CLASSIC_TREE}/tools/player/$<TARGET_FILE_NAME:orkige_player>"
+                    --scene "scenes/lumens.oscene"
+                    --dir "${CMAKE_CURRENT_BINARY_DIR}/benchmark_crossflavor_parity_lumens"
+                WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+            set_tests_properties(benchmark_crossflavor_parity_lumens PROPERTIES
+                LABELS integration TIMEOUT 900 SKIP_RETURN_CODE 77)
             # water_mirror_wobble: the wave-perturbed mirror EXISTENCE gate.
             # Ogre's native planar reflection is a flat screen-projected mirror
             # (glassy no matter the ripple); the next backend overrides the

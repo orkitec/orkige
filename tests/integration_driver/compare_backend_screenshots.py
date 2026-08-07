@@ -15,6 +15,10 @@ pair of capture directories:
     behind; without the sweep a drift in any of them is invisible to every
     gate. Most of the sweep is REPORT-ONLY by construction (see FEATURE_SHOTS)
     - a shot gates only once its corridor has been measured tight.
+    The sweep also reads its INVENTORY the other way round: iterating a table
+    can only score what the table names, so a frame BOTH flavors wrote that no
+    table here accounts for is a failure by itself (NOT_COMPARABLE_SHOTS is
+    where a frame that is legitimately not a pair gets named).
 
 Two roads reach the same comparison:
 
@@ -160,21 +164,36 @@ ADJUDICATION_REGION_DELTA = 8.0
 #: capture directory one level down: silence is not evidence.
 FLAT_FRAME_SPREAD = 1
 
+#: The frames that are NOT a cross-flavor subject, each with the reason. This
+#: is a TABLE rather than prose because the inventory check below reads it:
+#: every `.png` both flavors wrote has to be accounted for by one of the three
+#: tables in this file, so a frame that is legitimately not comparable is
+#: named HERE and a frame nobody named is a failure.
+NOT_COMPARABLE_SHOTS = {
+    "selfcheck_ui_surface.png":
+        "written only where RenderCaps::OffscreenOwnedLayers is supported "
+        "(the offscreen 2D composition case, next only - classic reports no "
+        "offscreen owned layers), so there is no classic counterpart",
+    "selfcheck_ui_window.png":
+        "the window half of the same next-only offscreen 2D pair",
+    "selfcheck_sky_skybox_cooked.png":
+        "needs ORKIGE_SELFCHECK_COOKED_CUBE_DIR - written by neither flavor "
+        "in a plain run",
+    "light_probe.png":
+        "a probe image, not a look frame: read WITHIN a flavor",
+    "ambient_flat_probe.png":
+        "a probe image, not a look frame - one frame the decal leg renders "
+        "with the ground hemisphere nudged a hair off the sky one, compared "
+        "against the flat baseline WITHIN a flavor to catch a backend "
+        "evaluating an equal pair by a different formula than a near-equal "
+        "one",
+}
+
 #: Every screenshot BOTH flavors write, with the corridor measured for it.
 #:
-#: WHAT IS NOT HERE, and why: `selfcheck_ui_surface.png` and
-#: `selfcheck_ui_window.png` are written only where
-#: `RenderCaps::OffscreenOwnedLayers` is supported (the offscreen 2D
-#: composition case, next only - classic reports no offscreen owned layers),
-#: so there is no classic counterpart to compare and they are not a parity
-#: subject. `selfcheck_sky_skybox_cooked.png` needs
-#: ORKIGE_SELFCHECK_COOKED_CUBE_DIR and is written by neither flavor in a
-#: plain run. `light_probe.png` and `ambient_flat_probe.png` are probe
-#: images, not look frames - the latter is one frame the decal leg renders
-#: with the ground hemisphere nudged a hair off the sky one, compared against
-#: the flat baseline WITHIN a flavor to catch a backend evaluating an equal
-#: pair by a different formula than a near-equal one. The four
-#: COMPARED_SHOTS stay in the pixel gate above and are not repeated here.
+#: WHAT IS NOT HERE, and why: the four COMPARED_SHOTS stay in the pixel gate
+#: above and are not repeated here; everything else both flavors write and
+#: this table omits is named in NOT_COMPARABLE_SHOTS with its reason.
 #:
 #: MEASUREMENT: every `note` carries what the developer pair measures - mean /
 #: outlier fraction / worst region-mean delta, from the classic GL3Plus
@@ -927,6 +946,32 @@ def verify_feature_shots_dir(label, directory):
             f"screenshots: {directory}")
 
 
+def unlisted_shots(classic_names, next_names):
+    """Frames both flavors wrote that no table in this file accounts for.
+
+    Pure; the inverse of the sweep's own loop. Iterating FEATURE_SHOTS can
+    only score what FEATURE_SHOTS names, so a NEW selfcheck capture nobody
+    listed is silently never compared - the table's blind spot, and the one
+    failure mode a per-shot corridor cannot catch. This reads the directories
+    instead: everything on disk, minus the pixel gate's four, minus the swept
+    set, minus the documented not-comparable set. What is left arrived without
+    a corridor.
+
+    Only a frame BOTH flavors produced can be a parity subject, so a
+    per-flavor capture (the next-only offscreen-owned-layers pair, a probe one
+    side skips, a shot behind an environment variable neither run sets) is not
+    unlisted - it is simply not a pair. Diff images are this driver's OWN
+    output and never an input, and the sidecars (`dimensions.txt`, the metric
+    and log files) are not frames.
+    """
+    accounted = (set(FEATURE_SHOTS) | set(COMPARED_SHOTS)
+                 | set(NOT_COMPARABLE_SHOTS))
+    return sorted(name for name in set(classic_names) & set(next_names)
+                  if name.endswith(".png")
+                  and not name.endswith(".diff.png")
+                  and name not in accounted)
+
+
 def feature_sweep(classic_out, next_out, report_only=False, diff_dir=None,
                   adjudication_dir=None,
                   adjudication_delta=ADJUDICATION_REGION_DELTA):
@@ -934,12 +979,19 @@ def feature_sweep(classic_out, next_out, report_only=False, diff_dir=None,
 
     A shot in the table that is missing from either directory is a FAILURE in
     EVERY mode, `--report-only` included: report-only silences a corridor
-    VERDICT, never the fact that there was nothing to compare.
+    VERDICT, never the fact that there was nothing to compare. An UNLISTED
+    shot is a failure in every mode for the same reason: a frame with no
+    corridor was not measured, and report-only relaxes verdicts, not coverage.
     """
     verify_feature_shots_dir("classic", classic_out)
     verify_feature_shots_dir("next", next_out)
 
     failures = 0
+    for shot in unlisted_shots(os.listdir(classic_out), os.listdir(next_out)):
+        print(f"FAIL unlisted shot {shot} - add it to FEATURE_SHOTS with "
+              f"measured corridors")
+        failures += 1
+
     measurements = []
     for shot in sorted(FEATURE_SHOTS):
         classic_path = os.path.join(classic_out, shot)
@@ -1409,8 +1461,16 @@ def selftest_corridor_table():
     # the sharper instrument is actually armed somewhere it gates
     assert any(corridor.bands and corridor.gated
                for corridor in FEATURE_SHOTS.values())
-    # the two sets are disjoint: the pixel gate's four are not re-scored here
+    # the three sets are disjoint: the pixel gate's four are not re-scored
+    # here, and nothing is both swept and declared not comparable
     assert not set(FEATURE_SHOTS) & set(COMPARED_SHOTS)
+    assert not set(FEATURE_SHOTS) & set(NOT_COMPARABLE_SHOTS)
+    assert not set(COMPARED_SHOTS) & set(NOT_COMPARABLE_SHOTS)
+    # every exemption says WHY it is not a parity subject - the table is the
+    # reason, not just the name
+    for shot, reason in NOT_COMPARABLE_SHOTS.items():
+        assert shot.endswith(".png"), shot
+        assert reason and len(reason) > 20, shot
     # the sweep is worth running: some of it actually gates
     assert any(corridor.gated for corridor in FEATURE_SHOTS.values())
 
@@ -1437,11 +1497,43 @@ def selftest_corridor_table():
     assert said == "band edge 12.5 > 4.0", said
 
 
+def selftest_inventory():
+    """The inverse read: a frame both flavors wrote and nobody listed."""
+    listed = sorted(FEATURE_SHOTS)[0]
+    exempt = sorted(NOT_COMPARABLE_SHOTS)[0]
+    sidecars = ["dimensions.txt", "grade_metrics.txt",
+                "render_facade_selfcheck.log"]
+    both = [listed, COMPARED_SHOTS[0], exempt] + sidecars
+
+    # a fully accounted-for pair of directories has nothing to report
+    assert unlisted_shots(both, both) == []
+
+    # a NEW capture both flavors wrote is named, and only it
+    assert unlisted_shots(both + ["selfcheck_brand_new.png"],
+                          both + ["selfcheck_brand_new.png"]) == \
+        ["selfcheck_brand_new.png"]
+
+    # one flavor alone is not a pair: the next-only offscreen frames are the
+    # real case, and an exemption is not needed to keep them quiet
+    assert unlisted_shots(both, both + ["selfcheck_one_flavor.png"]) == []
+    assert unlisted_shots(both + ["selfcheck_one_flavor.png"], both) == []
+
+    # this driver's own output is never an input
+    assert unlisted_shots(both + ["selfcheck_window.diff.png"],
+                          both + ["selfcheck_window.diff.png"]) == []
+
+    # ... and the answer is sorted, so a report reads the same twice
+    pair = both + ["selfcheck_zzz.png", "selfcheck_aaa.png"]
+    assert unlisted_shots(pair, pair) == ["selfcheck_aaa.png",
+                                          "selfcheck_zzz.png"]
+
+
 def selftest_feature_sweep(scratch):
     """The sweep end to end: verdicts, the refusals, the flat-pair rule."""
     selftest_region_math()
     selftest_band_math()
     selftest_corridor_table()
+    selftest_inventory()
 
     classic = os.path.join(scratch, "fclassic")
     nxt = os.path.join(scratch, "fnext")
@@ -1493,6 +1585,33 @@ def selftest_feature_sweep(scratch):
     code, said = run_quiet(sweep)
     assert code == 1 and "missing or empty" in said, said
     write_png(absent_shot, 8, 8, (40, 80, 120), stripe=(200, 40, 40))
+
+    # AN UNLISTED SHOT: a new selfcheck capture both flavors write and no
+    # table names is a failure on its own - the sweep would otherwise iterate
+    # past it and report parity over a frame it never compared
+    newcomer = "selfcheck_brand_new.png"
+    for directory in (classic, nxt):
+        write_png(os.path.join(directory, newcomer), 8, 8, (40, 80, 120),
+                  stripe=(200, 40, 40))
+    for extra in ([], ["--report-only"]):
+        code, said = run_quiet(sweep + extra)
+        assert code == 1, (extra, said)
+        assert (f"unlisted shot {newcomer} - add it to FEATURE_SHOTS with "
+                f"measured corridors") in said, said
+    # ... written by ONE flavor it is not a pair at all, and stays quiet
+    os.remove(os.path.join(classic, newcomer))
+    code, said = run_quiet(sweep)
+    assert code == 0 and newcomer not in said, said
+    os.remove(os.path.join(nxt, newcomer))
+    # ... and a name the not-comparable table accounts for stays quiet on both
+    exempt = sorted(NOT_COMPARABLE_SHOTS)[0]
+    for directory in (classic, nxt):
+        write_png(os.path.join(directory, exempt), 8, 8, (40, 80, 120),
+                  stripe=(200, 40, 40))
+    code, said = run_quiet(sweep)
+    assert code == 0 and exempt not in said, said
+    for directory in (classic, nxt):
+        os.remove(os.path.join(directory, exempt))
 
     # a directory carrying none of the swept shots refuses rather than passes
     unrelated = os.path.join(scratch, "funrelated")
