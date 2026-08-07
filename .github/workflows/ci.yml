@@ -60,6 +60,10 @@ env:
   # the presets resolve VCPKG_ROOT to $HOME/Development/vcpkg (same
   # convention as the dev machines - see CMakePresets.json linux-base)
   VCPKG_ROOT_DIR: /home/runner/Development/vcpkg
+  # every distfile is looked up in our ci-assets release BY SHA512 before any
+  # upstream server is asked - a slow or runner-hostile upstream (lua.org)
+  # can then never fail a build; vcpkg verifies the hash either way
+  X_VCPKG_ASSET_SOURCES: "x-azurl,https://github.com/orkitec/orkige/releases/download/ci-assets,,read"
   VCPKG_DEFAULT_BINARY_CACHE: /home/runner/vcpkg-binary-cache
   CCACHE_DIR: /home/runner/.ccache
   # The next job compiles three host configurations (regular, scripting off,
