@@ -158,11 +158,10 @@ PROFILES = {
             # the mirrored-ridge strips: 7 left, 8 right
             "watermirror_l": (0.08, 0.25, 0.40, 0.28, 15.0),
             "watermirror_r": (0.60, 0.25, 0.92, 0.28, 18.0),
-            # measures 13 (17 before both flavors transmitted the refracted
-            # scene at true linear radiance)
+            # measures 12 with both flavors transmitting the refracted scene
+            # at true linear radiance and at the authored share
             "rockmirror": (0.38, 0.38, 0.52, 0.50, 28.0),
-            # measures 35 (39 before the same change); the body seam keeps it
-            # the widest corridor here
+            # measures 34; the body seam keeps it the widest corridor here
             "water_open": (0.05, 0.36, 0.35, 0.52, 50.0),
         },
         "streak": True,

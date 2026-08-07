@@ -4363,21 +4363,23 @@ namespace Orkige
 			// the (1-cos)^5 lobe integrates to 1/21). The mirrored scene, not
 			// the body glow, carries the surface; the fresnel gate still keeps
 			// the look water, not chrome.
-			// the refracted share is dimmed toward classic's compose:
-			// classic's paint carries its scene share pre-dimmed AND renders
-			// the underwater scene darker, while the Refractive mode
-			// composes the captured scene at the full (1 - opacity) - at the
-			// benchmark's bright sandy bed that share alone outshines the
-			// whole paint. The factor is CALIBRATED, not derived: it covers
-			// classic's own dim and the brighter captured content in one
-			// measured number (the mirror scene's deep water band, classic
-			// 48 against 95 undimmed, 57 at this value - the residual is the
-			// sky-dome hue seam, not brightness). HlmsPbs premultiplies its
-			// fresnel by this alpha, so the effective F0 below reads the
-			// SAME value and the mirror math stays coherent
-			const float kRefractedShareDim = 0.30f;
-			const float alphaEff = 1.0f -
-				(1.0f - std::clamp(desc.opacity, 0.0f, 1.0f)) * kRefractedShareDim;
+			// the refracted share stays the AUTHORED one, exactly as the
+			// non-mirror branch above sets it. HlmsPbs adds the captured scene
+			// at (1 - opacity) into the LINEAR accumulator and display-encodes
+			// once, so the transmitted scene reaches the screen at
+			// sqrt(1 - opacity) - 0.55 at the mirror scene's 0.7 - against the
+			// (1 - opacity * 0.6) = 0.58 classic's mirror paint carries in
+			// DISPLAY space (mix(scene, deep, opacity * 0.6) - @see
+			// RenderSystemClassic WaterReflect_fs). The two composes agree at
+			// the authored value; a share dimmed below it leaves a body with no
+			// lakebed under it - the mirror scene's refracted shadow bands
+			// measure a 1.2-1.4 level darkening against the open body beside
+			// them at the authored share and NONE (-0.5 to -1.1, the bands
+			// read brighter than the body) at a 0.3 one, where classic's read
+			// 5.3-6.7. HlmsPbs premultiplies its fresnel by this
+			// alpha, which is what classic does explicitly (f0 * opacity), so
+			// the effective F0 below reads the SAME value on both flavors.
+			const float alphaEff = std::clamp(desc.opacity, 0.0f, 1.0f);
 			datablock->setTransparency(alphaEff, useRefraction
 				? Ogre::HlmsPbsDatablock::Refractive
 				: Ogre::HlmsPbsDatablock::Transparent);
