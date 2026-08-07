@@ -9,8 +9,8 @@ test and debug games over MCP. Originally written 2009–2012 and shipped on the
 App Store (*Pudding Panic*), revived and fully modernized in 2026. Licensed
 under [Apache-2.0](LICENSE).
 
-[![main](https://img.shields.io/github/check-runs/orkitec/orkige/main?label=main)](https://github.com/orkitec/orkige/commits/main)
-[![development](https://github.com/orkitec/orkige/actions/workflows/ci.yml/badge.svg?branch=development)](https://github.com/orkitec/orkige/actions/workflows/ci.yml?query=branch%3Adevelopment)
+[![main branch](https://img.shields.io/github/check-runs/orkitec/orkige/main?label=main%20branch)](https://github.com/orkitec/orkige/commits/main)
+[![development branch](https://img.shields.io/github/check-runs/orkitec/orkige/development?label=development%20branch)](https://github.com/orkitec/orkige/actions/workflows/ci.yml?query=branch%3Adevelopment)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20·%20Windows%20·%20Linux%20·%20iOS%20·%20Android%20·%20Web-blue)](https://orkige.orkitec.com/help/getting-started.html)
 [![Renderer](https://img.shields.io/badge/renderer-Ogre--Next%20·%20OGRE%2014%20·%20Metal%20·%20Vulkan%20·%20GL3%2B%20·%20GLES2-green)](https://orkige.orkitec.com/help/render-abstraction.html)
 [![Physics](https://img.shields.io/badge/physics-Jolt%205-orange)](https://github.com/jrouwe/JoltPhysics)
