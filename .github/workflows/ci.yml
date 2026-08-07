@@ -737,9 +737,8 @@ jobs:
           echo "found=$run_id" >> "$GITHUB_OUTPUT"
 
       - name: Download the previous green run's captures
-        if: always()
+        if: always() && steps.previous-green.outputs.found != ''
         id: previous-captures
-        if: steps.previous-green.outputs.found != ''
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
