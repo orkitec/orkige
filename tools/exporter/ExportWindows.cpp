@@ -121,7 +121,8 @@ namespace OrkigeExport
 	bool exportWindows(ExportProject const & project, EngineSource const & source,
 		Orkige::String const & outputDirectory,
 		ExportEnvironment const & environment, PayloadTestRun const & tests,
-		Orkige::String & outArtifact, Orkige::String * error)
+		WindowsSigning const & signing, Orkige::String & outArtifact,
+		Orkige::String * error)
 	{
 		if(!project.nativeTarget().empty())
 		{
@@ -361,6 +362,24 @@ namespace OrkigeExport
 		}
 		emit(environment.log,
 			"project payload: " + std::to_string(staged) + " files");
+
+		// the signature goes on LAST, over the bytes that ship. Nothing here
+		// rewrites the executable afterwards, so a signature made now is the
+		// signature a person's machine checks. An unsigned export skips this
+		// entirely and is byte-identical to one produced before it existed.
+		{
+			std::vector<Orkige::String> signableLibraries;
+			for(Orkige::String const & library : companions)
+			{
+				signableLibraries.push_back(
+					ExportFiles::join(appDirectory, library));
+			}
+			if(!signWindowsPackage(packagedExecutable, signableLibraries,
+				signing, environment, error))
+			{
+				return false;
+			}
+		}
 		// said out loud rather than left to be noticed: the package is a
 		// portable directory, and where its Start-menu entry and its icon come
 		// from is a question an installer answers, not this

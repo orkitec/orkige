@@ -28,6 +28,7 @@ add_executable(orkige_exporter_tests
     ExportZipTests.cpp
     ExportMobileTests.cpp
     ExportMacosSignTests.cpp
+    ExportWindowsSignTests.cpp
     ExportAndroidAssembleTests.cpp
     ExportAndroidLibraryTests.cpp
     ExportWebTests.cpp

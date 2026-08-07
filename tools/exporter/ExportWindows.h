@@ -12,6 +12,7 @@
 #include "ExportPayload.h"
 #include "ExportProcess.h"
 #include "ExportProject.h"
+#include "ExportWindowsSign.h"
 
 #include <core_util/String.h>
 
@@ -101,11 +102,16 @@ namespace OrkigeExport
 	//! @param outArtifact receives the directory path on success
 	//! @param tests a TEST BUILD: carry the project's suite and run it
 	//!        (default off, so a shipping directory is untouched)
+	//! @param signing what the packaged executable is sealed with. An
+	//!        unresolved one (@ref WindowsSigning::real is false) is the
+	//!        DEFAULT: the package is unsigned and byte-identical to one
+	//!        produced before signing existed (@see ExportWindowsSign.h).
 	//! @return false with an honest @p error naming the missing piece
 	bool exportWindows(ExportProject const & project, EngineSource const & source,
 		Orkige::String const & outputDirectory,
 		ExportEnvironment const & environment, PayloadTestRun const & tests,
-		Orkige::String & outArtifact, Orkige::String * error);
+		WindowsSigning const & signing, Orkige::String & outArtifact,
+		Orkige::String * error);
 }
 
 #endif //__ExportWindows_h__5_8_2026__22_30_00__

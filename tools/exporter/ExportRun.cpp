@@ -150,6 +150,14 @@ namespace OrkigeExport
 			NOTARY_APP_PASSWORD_ENV,
 			NOTARY_TEAM_ID_ENV,
 			NOTARY_TIMEOUT_ENV,
+			// the Windows Authenticode material: a machine-store thumbprint
+			// (public) or a certificate file, its password, and the timestamp
+			// authority that countersigns
+			WINDOWS_CERTIFICATE_ENV,
+			WINDOWS_CERTIFICATE_PASSWORD_ENV,
+			WINDOWS_THUMBPRINT_ENV,
+			WINDOWS_TIMESTAMP_URL_ENV,
+			SIGNTOOL_ENV,
 			// where the Android SDK and the JDK that drives it are found; HOME
 			// (and LOCALAPPDATA on Windows) so the default install location is
 			// reachable when nobody configured anything
@@ -158,6 +166,13 @@ namespace OrkigeExport
 			JAVA_HOME_ENV,
 			"HOME",
 			"LOCALAPPDATA",
+			// how signtool.exe is found: the Windows SDK's own variable, the
+			// two program directories the kits install under, and PATH as the
+			// last resort (@see locateSigntool)
+			"WindowsSdkDir",
+			"ProgramFiles(x86)",
+			"ProgramFiles",
+			"PATH",
 		};
 		for(const char * name : names)
 		{
@@ -212,6 +227,35 @@ namespace OrkigeExport
 				macosSigning, error))
 			{
 				return false;
+			}
+		}
+		WindowsSigning windowsSigning;
+		if(request.windowsSigning.requested())
+		{
+			const String platformRefusal =
+				windowsSigningPlatformRefusal(request.platform);
+			if(!platformRefusal.empty())
+			{
+				return refuse(error, platformRefusal);
+			}
+			if(!resolveWindowsSigning(request.windowsSigning,
+				request.environment, windowsSigning, error))
+			{
+				return false;
+			}
+			// ...and the TOOL is found here too, before a single file is
+			// copied: a machine with no Windows SDK must refuse rather than
+			// assemble a package it then cannot sign
+			if(windowsSigning.real())
+			{
+				String refusal;
+				windowsSigning.signtool = locateSigntool(
+					windowsSigning.signtool, request.environment,
+					defaultFileProbe(), defaultDirectoryLister(), &refusal);
+				if(windowsSigning.signtool.empty())
+				{
+					return refuse(error, refusal);
+				}
 			}
 		}
 		if(request.source.fromBundle())
@@ -395,7 +439,7 @@ namespace OrkigeExport
 		else if(request.platform == "windows")
 		{
 			packaged = exportWindows(project, source, outputDirectory,
-				environment, tests, artifact, error);
+				environment, tests, windowsSigning, artifact, error);
 		}
 		else if(request.platform == "ios-simulator" ||
 			request.platform == "ios" || request.platform == "ios-ipa")

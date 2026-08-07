@@ -199,11 +199,26 @@ bool runPlannedExport(OrkigeEditor::EditorExportPlan const& plan,
 		prefer(request.macosSigning.notaryIssuer, given.notaryIssuer);
 		prefer(request.macosSigning.notaryAppleId, given.notaryAppleId);
 		prefer(request.macosSigning.notaryTeamId, given.notaryTeamId);
+		prefer(request.windowsSigning.certificate, given.windowsCertificate);
+		prefer(request.windowsSigning.thumbprint, given.windowsThumbprint);
+		prefer(request.windowsSigning.timestampUrl,
+			given.windowsTimestampUrl);
+		prefer(request.windowsSigning.signtool, given.signtool);
 		// what those names DO is one deliberate ask, and only the headless
-		// door makes it: an app signed for other people needs credentials this
-		// process is not allowed to invent (@see ExportMacosSign.h)
-		request.macosSigning.sign = overrides->signRelease;
-		request.macosSigning.notarize = overrides->notarize;
+		// door makes it: a program signed for other people needs credentials
+		// this process is not allowed to invent (@see ExportMacosSign.h,
+		// ExportWindowsSign.h). ONE ask, and the platform being packaged
+		// decides whose rules it means - every non-Windows platform keeps
+		// landing on the macOS gate, which is what makes its refusal name them.
+		if (plan.platform == "windows" && !overrides->notarize)
+		{
+			request.windowsSigning.sign = overrides->signRelease;
+		}
+		else
+		{
+			request.macosSigning.sign = overrides->signRelease;
+			request.macosSigning.notarize = overrides->notarize;
+		}
 		request.withTests = overrides->withTests;
 		request.testFilter = overrides->testFilter;
 	}

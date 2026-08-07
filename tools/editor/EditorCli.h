@@ -154,13 +154,19 @@ namespace OrkigeEditor
 		//! rides in the payload and the artifact runs it instead of the game.
 		//! A separate KIND of package; a shipping export never sets it.
 		bool			withTests = false;
-		//! `--sign` / `--notarize`: seal a macOS package with a Developer ID
-		//! certificate and the hardened runtime, and - notarizing - submit it
-		//! to Apple and staple the ticket. THIS DOOR ONLY: the window's Build
-		//! menu and the control endpoint both package the ad-hoc app, because
-		//! a signed one needs machine-local secrets neither of them may hold
-		//! (@see tools/exporter/ExportMacosSign.h). The app-specific password
-		//! has no flag at all - it is read from the environment.
+		//! `--sign`: seal the DESKTOP package for other people's machines. The
+		//! platform being packaged decides whose rules that means - a macOS
+		//! package gets a Developer ID certificate and the hardened runtime
+		//! (@see tools/exporter/ExportMacosSign.h), a Windows one an
+		//! Authenticode signature countersigned through RFC 3161 (@see
+		//! tools/exporter/ExportWindowsSign.h).
+		//! `--notarize` is the Apple half alone: it additionally submits the
+		//! bundle and staples the ticket, and nothing on Windows corresponds
+		//! to it.
+		//! THIS DOOR ONLY: the window's Build menu and the control endpoint
+		//! both package the unsigned artifact, because a signed one needs
+		//! machine-local secrets neither of them may hold. Neither password
+		//! has a flag at all - both are read from the environment.
 		bool			signRelease = false;
 		bool			notarize = false;
 

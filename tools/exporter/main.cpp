@@ -44,13 +44,19 @@
 //!
 //! The signing material for the signed platforms is machine-local and never
 //! committed - a CLI argument, else the environment (@see ExportSettings.h,
-//! ExportMacosSign.h). Without it those platforms refuse rather than emit a
-//! half-signed artifact.
+//! ExportMacosSign.h, ExportWindowsSign.h). Without it those platforms refuse
+//! rather than emit a half-signed artifact.
 //!
-//! A macOS package is signed AD-HOC unless `--sign` asks for a Developer ID
-//! signature with the hardened runtime, and `--notarize` additionally submits
-//! it to Apple and staples the ticket - what another Mac needs before it will
-//! open a downloaded game (@see ExportMacosSign.h).
+//! `--sign` asks for a DESKTOP signature, and `--platform` decides whose rules
+//! that means. A macOS package is signed AD-HOC unless it is asked for a
+//! Developer ID signature with the hardened runtime, and `--notarize`
+//! additionally submits it to Apple and staples the ticket - what another Mac
+//! needs before it will open a downloaded game (@see ExportMacosSign.h). A
+//! Windows package is UNSIGNED unless it is asked for an Authenticode
+//! signature, made with a machine-store certificate (`--windows-thumbprint`)
+//! or a certificate file (`--windows-certificate`) and countersigned through
+//! RFC 3161; nothing there corresponds to notarization (@see
+//! ExportWindowsSign.h).
 //!
 //! Output lands in `<project>/builds/<platform>/` (or `--output`). The last
 //! line on success is `orkige_export: OK <artifact>` - the editor's Build menu
@@ -357,6 +363,12 @@ int main(int argc, char ** argv)
 	String bundletool;
 	String testFilter;
 	OrkigeExport::MacosSigningOptions macosSigning;
+	OrkigeExport::WindowsSigningOptions windowsSigning;
+	// --sign is the DESKTOP signing ask; which platform's rules it means is
+	// decided by --platform once the whole line is parsed, so the flag may
+	// appear before it
+	bool signRequested = false;
+	bool notarizeRequested = false;
 	bool unsignedBundleModule = false;
 	bool withTests = false;
 	for(std::size_t index = 0; index < arguments.size(); ++index)
@@ -375,15 +387,15 @@ int main(int argc, char ** argv)
 		}
 		if(argument == "--sign")
 		{
-			macosSigning.sign = true;
+			signRequested = true;
 			continue;
 		}
 		if(argument == "--notarize")
 		{
 			// notarization is a signature Apple has vouched for, so it implies
 			// the signature - there is nothing to submit without one
-			macosSigning.sign = true;
-			macosSigning.notarize = true;
+			signRequested = true;
+			notarizeRequested = true;
 			continue;
 		}
 		if(index + 1 >= arguments.size())
@@ -439,6 +451,19 @@ int main(int argc, char ** argv)
 		{
 			macosSigning.notaryTeamId = value;
 		}
+		else if(argument == "--windows-certificate")
+		{
+			windowsSigning.certificate = value;
+		}
+		else if(argument == "--windows-thumbprint")
+		{
+			windowsSigning.thumbprint = value;
+		}
+		else if(argument == "--windows-timestamp-url")
+		{
+			windowsSigning.timestampUrl = value;
+		}
+		else if(argument == "--signtool") { windowsSigning.signtool = value; }
 		else if(argument == "--test-filter") { testFilter = value; }
 		else { return fail("unknown argument '" + argument + "'"); }
 	}
@@ -457,6 +482,10 @@ int main(int argc, char ** argv)
 			"                     [--with-tests [--test-filter <substring>]]\n"
 			"                     [--sign | --notarize] "
 			"[--macos-identity <name>]\n"
+			"                     [--windows-thumbprint <sha1> | "
+			"--windows-certificate <pfx>]\n"
+			"                     [--windows-timestamp-url <url>] "
+			"[--signtool <path>]\n"
 			"       orkige_export self-contain --frameworks <dir> "
 			"[--search <dir>]... <binary>...\n");
 		return 2;
@@ -471,16 +500,65 @@ int main(int argc, char ** argv)
 		return fail("--test-filter only means something in a test build - "
 			"pass --with-tests too");
 	}
-	if(!macosSigning.sign && (!macosSigning.identity.empty() ||
-		!macosSigning.notaryKey.empty() || !macosSigning.notaryKeyId.empty() ||
-		!macosSigning.notaryIssuer.empty() ||
-		!macosSigning.notaryAppleId.empty() ||
-		!macosSigning.notaryTeamId.empty()))
+	// --sign names a DESKTOP signature; the platform decides whose rules it
+	// means. Every other platform keeps landing on the macOS gate, which is
+	// what makes its refusal name them (@see macosSigningPlatformRefusal).
+	if(signRequested)
 	{
-		// naming a credential without asking for a signed build reads as a
-		// signed build, and would silently produce an ad-hoc one
-		return fail("a macOS signing credential was named without --sign (or "
-			"--notarize), so nothing would be signed with it");
+		if(platform == "windows" && !notarizeRequested)
+		{
+			windowsSigning.sign = true;
+		}
+		else
+		{
+			macosSigning.sign = true;
+			macosSigning.notarize = notarizeRequested;
+		}
+	}
+	{
+		const bool macosCredentialNamed = !macosSigning.identity.empty() ||
+			!macosSigning.notaryKey.empty() ||
+			!macosSigning.notaryKeyId.empty() ||
+			!macosSigning.notaryIssuer.empty() ||
+			!macosSigning.notaryAppleId.empty() ||
+			!macosSigning.notaryTeamId.empty();
+		const bool windowsCredentialNamed =
+			!windowsSigning.certificate.empty() ||
+			!windowsSigning.thumbprint.empty() ||
+			!windowsSigning.timestampUrl.empty() ||
+			!windowsSigning.signtool.empty();
+		// a credential aimed at another platform's gate is a mistake worth
+		// naming, and naming one without asking for a signed build reads as a
+		// signed build while silently producing an unsigned one
+		if(macosCredentialNamed)
+		{
+			const String refusal =
+				OrkigeExport::macosSigningPlatformRefusal(platform);
+			if(!refusal.empty())
+			{
+				return fail(refusal);
+			}
+			if(!macosSigning.sign)
+			{
+				return fail("a macOS signing credential was named without "
+					"--sign (or --notarize), so nothing would be signed with "
+					"it");
+			}
+		}
+		if(windowsCredentialNamed)
+		{
+			const String refusal =
+				OrkigeExport::windowsSigningPlatformRefusal(platform);
+			if(!refusal.empty())
+			{
+				return fail(refusal);
+			}
+			if(!windowsSigning.sign)
+			{
+				return fail("a Windows signing credential was named without "
+					"--sign, so nothing would be signed with it");
+			}
+		}
 	}
 	if(!engineBundle.empty() && !engineBuild.empty())
 	{
@@ -517,6 +595,7 @@ int main(int argc, char ** argv)
 	request.androidKeyAlias = androidKeyAlias;
 	request.bundletool = bundletool;
 	request.macosSigning = macosSigning;
+	request.windowsSigning = windowsSigning;
 	request.unsignedBundleModule = unsignedBundleModule;
 	request.environment = OrkigeExport::currentEnvironment();
 	if(!engineBundle.empty())

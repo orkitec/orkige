@@ -69,7 +69,7 @@ device. Each platform tab shows both purposes:
 | **iOS** | signing identity + development provisioning profile (Play on a device, a development install) | distribution identity + App Store/ad-hoc profile |
 | **Android** | nothing to configure — a debug APK is signed with the shared debug keystore, created on this machine on demand | release keystore, key alias, bundletool jar, plus the two passwords (which go to the credential store, never to a file) |
 | **macOS** | nothing to configure — an export is signed ad-hoc, which runs on this machine | Developer ID Application identity, plus one of Apple's two notarization credential routes; the app-specific password goes to the credential store ([desktop-export.md](desktop-export.md)) |
-| **Windows** | nothing to configure — an exported executable is unsigned and runs here | shown, not wired: removing the SmartScreen warning needs your own code-signing certificate |
+| **Windows** | nothing to configure — an exported executable is unsigned and runs here | a code-signing certificate: either one already in this machine's store, named by its thumbprint, or a `.pfx` whose password goes to the credential store, plus the timestamp authority that countersigns ([desktop-export.md](desktop-export.md)) |
 
 A cell with nothing to configure says so rather than showing an empty field, and
 a cell whose credentials are not applied yet says that too — three honest states

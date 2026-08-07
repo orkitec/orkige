@@ -55,6 +55,18 @@ namespace OrkigeEditor
 		const char * const NOTARY_APP_PASSWORD_ENV =
 			"ORKIGE_NOTARY_APP_PASSWORD";
 		const char * const NOTARY_TEAM_ID_ENV = "ORKIGE_NOTARY_TEAM_ID";
+		// Authenticode takes either a certificate already in this machine's
+		// store, named by its (public) thumbprint and needing no password at
+		// all, or a PKCS#12 file whose password is a secret and therefore
+		// lives in the vault
+		const char * const WINDOWS_CERTIFICATE_ENV =
+			"ORKIGE_WINDOWS_SIGNING_CERTIFICATE";
+		const char * const WINDOWS_CERTIFICATE_PASSWORD_ENV =
+			"ORKIGE_WINDOWS_SIGNING_PASSWORD";
+		const char * const WINDOWS_THUMBPRINT_ENV =
+			"ORKIGE_WINDOWS_SIGNING_THUMBPRINT";
+		const char * const WINDOWS_TIMESTAMP_URL_ENV =
+			"ORKIGE_WINDOWS_TIMESTAMP_URL";
 
 		//! the machine-store subdirectory, under the editor's writable state
 		const char * const SETTINGS_DIR_NAME = "buildsettings";
@@ -293,22 +305,36 @@ namespace OrkigeEditor
 			cells.push_back(cell);
 		}
 		{
+			// a downloaded program names its publisher or it does not, and
+			// SmartScreen's reputation hangs off that name. The export that
+			// uses these is the command line's (`--sign`), which is where the
+			// environment carrying the password already is
 			BuildTargetCell cell;
 			cell.platform = "windows";
 			cell.purpose = BuildPurpose::Distribution;
-			cell.label = "Distribute to other PCs";
-			cell.helpPage = "store-release";
-			cell.state = BuildCellState::Pending;
-			cell.note = "Not wired yet. An exported executable is unsigned, so "
-				"people downloading it meet a SmartScreen warning. Removing it "
-				"needs your own code-signing certificate, which project "
-				"exports do not use yet - so these fields are shown, not "
-				"stored.";
-			cell.slots.push_back(machineSlot("", "Code-signing certificate",
-				"", true, "the .pfx that signs the executable"));
-			// no vault key: a Pending cell stores nothing, of either kind
-			cell.slots.push_back(secretSlot("Certificate password", "", "",
-				"nothing is kept for a signing step that does not run yet"));
+			cell.label = "Distribute to other PCs (signed)";
+			cell.helpPage = "desktop-export";
+			cell.state = BuildCellState::Applied;
+			cell.slots.push_back(machineSlot("windows.distribution.thumbprint",
+				"Certificate thumbprint", WINDOWS_THUMBPRINT_ENV, false,
+				"the SHA-1 thumbprint of a certificate already in this "
+				"machine's store - the preferred route, and the one where no "
+				"password exists at all"));
+			cell.slots.push_back(machineSlot("windows.distribution.certificate",
+				"Certificate file", WINDOWS_CERTIFICATE_ENV, true,
+				"the alternative: a .pfx holding the certificate and its "
+				"private key"));
+			cell.slots.push_back(secretSlot("Certificate password",
+				WINDOWS_CERTIFICATE_PASSWORD_ENV,
+				"windows.distribution.certificatePassword",
+				"only for a .pfx; kept in this machine's credential store, "
+				"never in a file, and read from the environment by the "
+				"signing step"));
+			cell.slots.push_back(machineSlot("windows.distribution.timestampUrl",
+				"Timestamp authority", WINDOWS_TIMESTAMP_URL_ENV, false,
+				"an RFC 3161 responder that countersigns, so the signature "
+				"outlives the certificate (a public one is used when this is "
+				"empty)"));
 			cells.push_back(cell);
 		}
 		return cells;
@@ -682,6 +708,12 @@ namespace OrkigeEditor
 		credentials.notaryIssuer = valueOf("macos.distribution.notaryIssuer");
 		credentials.notaryAppleId = valueOf("macos.distribution.notaryAppleId");
 		credentials.notaryTeamId = valueOf("macos.distribution.notaryTeamId");
+		credentials.windowsCertificate =
+			valueOf("windows.distribution.certificate");
+		credentials.windowsThumbprint =
+			valueOf("windows.distribution.thumbprint");
+		credentials.windowsTimestampUrl =
+			valueOf("windows.distribution.timestampUrl");
 		return credentials;
 	}
 }

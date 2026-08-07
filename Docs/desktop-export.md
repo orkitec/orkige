@@ -346,6 +346,157 @@ machine that built it and nowhere else. The export prefers a release player
 automatically when one is beside the tree it was given, and says so in the log
 when it has to fall back.
 
+## Signing a Windows package: two states, and nothing in between
+
+Windows has a code-signing tier of its own — Authenticode, and the SmartScreen
+reputation that hangs off it — so a package meant for **other people's PCs**
+names a publisher or it does not.
+
+| State | What it is | What it needs |
+|---|---|---|
+| **unsigned** (default) | a plain copy of the player binary, naming nobody | nothing |
+| **signed** (`--sign`) | an Authenticode signature over each shipped binary, countersigned through RFC 3161 | a code-signing certificate |
+
+An export that asks for nothing produces the unsigned package, byte for byte,
+and consults no credential. Signing is opt-in and always explicit, and a signed
+export whose certificate is missing **refuses and packages nothing** — a
+half-signed artifact is worse than an honestly unsigned one.
+
+There is no third state, and that is the honest difference from the macOS tier
+above. **Nothing here corresponds to notarization.** No service is asked for a
+verdict, so there is nothing to poll, no wait to bound and nothing to staple —
+`--notarize` on a Windows package refuses by name. The timestamp below is a
+*countersignature over the signature*, not an opinion about the program.
+Reputation is earned by the certificate over time rather than granted per
+build, which means a brand-new certificate still meets a SmartScreen warning
+for a while; that is a property of the ecosystem, not of the export.
+
+### Signing from the command line
+
+```sh
+# a certificate already in this machine's store, named by its thumbprint
+orkige_export --project projects/mygame --platform windows ^
+    --engine-build build/windows-release ^
+    --sign --windows-thumbprint A1B2C3D4E5F60718293A4B5C6D7E8F9012345678
+
+# ...or a certificate file, whose password comes from the environment alone
+set ORKIGE_WINDOWS_SIGNING_PASSWORD=...
+orkige_export --project projects/mygame --platform windows ^
+    --engine-build build/windows-release ^
+    --sign --windows-certificate C:\keys\publisher.pfx
+```
+
+`orkige_editor export` takes the identical flags.
+
+### Credentials
+
+| What | Flag | Environment | Settings key |
+|---|---|---|---|
+| machine-store certificate thumbprint | `--windows-thumbprint` | `ORKIGE_WINDOWS_SIGNING_THUMBPRINT` | `windows.distribution.thumbprint` |
+| certificate file (`.pfx`) | `--windows-certificate` | `ORKIGE_WINDOWS_SIGNING_CERTIFICATE` | `windows.distribution.certificate` |
+| ...its password | **none** | `ORKIGE_WINDOWS_SIGNING_PASSWORD` | **none** (the credential store) |
+| RFC 3161 timestamp authority | `--windows-timestamp-url` | `ORKIGE_WINDOWS_TIMESTAMP_URL` | `windows.distribution.timestampUrl` |
+| `signtool.exe`, named outright | `--signtool` | `ORKIGE_SIGNTOOL` | — |
+
+The precedence is the one rule everywhere: **an explicit value wins, then the
+environment.** The names follow the vocabulary the other platforms use —
+`ORKIGE_<PLATFORM>_<WHAT>`, as `ORKIGE_MACOS_SIGNING_IDENTITY` and
+`ORKIGE_ANDROID_KEYSTORE` do — rather than naming the signature format, because
+nothing else in the export environment is named after a technology and somebody
+looking for "the Windows signing variables" should find them by the platform
+they are packaging for. `ORKIGE_SIGNTOOL` is spelled like `ORKIGE_BUNDLETOOL`,
+which is the other variable that names a **program** rather than a credential.
+
+Two routes, and **the machine store wins when both are configured**: the
+private key never leaves the certificate store — the shape a hardware token or
+an HSM has — so a run taking that route holds no secret at all, and one that
+holds no secret cannot leak one. A thumbprint is a public hash of a public
+certificate, which is why it may travel on a command line and is *not* redacted
+out of the echoed log; hiding it would only make the log useless for telling
+which certificate signed.
+
+The `.pfx` password is the one credential with no flag and no settings key — it
+is a secret, so it lives in the OS credential store and reaches the signing step
+through the environment. A certificate file named with **no** password refuses
+rather than proceeding: `signtool` would stop and *ask*, which on a build server
+is a job that hangs instead of a job that fails.
+
+### Finding signtool
+
+There is no `xcrun` here. `signtool.exe` ships inside the Windows SDK (the
+*Windows SDK Signing Tools* component), under a per-SDK-version directory, and
+is on no machine's `PATH` by default — so it is searched for rather than
+assumed, in this order:
+
+1. `ORKIGE_SIGNTOOL` (or `--signtool`), if named. A named tool that is not there
+   **refuses rather than falling back**: somebody who names a tool means that
+   tool, and quietly signing with a different one is exactly the silent
+   substitution the search exists to prevent.
+2. every Windows Kits root the environment points at — `WindowsSdkDir` first,
+   then the two Program Files directories — **newest SDK version first**. The
+   ordering compares version components as numbers, not as text: sorted as text
+   `10.0.9000.0` outranks `10.0.22621.0`, and the search would take a
+   decade-old tool off a machine that has a current one.
+3. the entries of `PATH`, split and probed explicitly. A bare name handed to
+   the process launcher fails as "could not run 'signtool'", which names
+   neither what is missing nor how to get it.
+
+A machine with none of these is told to install the Windows SDK, and it is told
+that **before a single file is copied** — the tool is located in the same gate
+that resolves the credentials.
+
+### What a signed export runs
+
+```
+signtool sign /fd SHA256 /tr <timestamp url> /td SHA256 \
+         /sha1 <thumbprint>                              <Name>.exe
+signtool verify /pa                                      <Name>.exe
+```
+
+...or, on the certificate-file route, `/f <pfx> /p <password>` in place of
+`/sha1`. Every DLL that rode into the package is signed and verified the same
+way first; there is no seal over a directory here, so each file stands alone.
+
+- `/fd SHA256` is the digest of the signature and `/td SHA256` the digest of the
+  countersignature. SHA-1 is not accepted for either any more, and defaulting is
+  not the same as choosing, so both are stated.
+- `/tr` is the RFC 3161 form. The older `/t` protocol no longer produces a
+  timestamp an operating system accepts.
+- `/pa` selects the **Authenticode** policy — what an operating system applies
+  to a program. Without it `signtool` verifies against the *driver* policy,
+  which a perfectly good application signature fails.
+
+The sequence is decided up front by a pure planner
+(`tools/exporter/ExportWindowsSign.h`) and each command is spawned directly as
+an argv — no shell, nothing handed to a command interpreter. The password is
+replaced with `<redacted>` before any line is echoed, for the reason the
+notarization credentials are: `signtool` takes it on an argv and offers no
+alternative.
+
+### The timestamp is not optional
+
+An Authenticode signature with no countersignature stops verifying the day the
+certificate expires, which turns every copy already in people's hands into an
+unsigned one. So the timestamp URL has a default and can be pointed elsewhere
+with `--windows-timestamp-url`, but there is no way to ask for a signature
+without one.
+
+### Where signing is available
+
+Signed distribution is a **command-line** operation, exactly as it is on macOS
+and for the same reason: it needs machine-local secrets. `--sign` exists on
+`orkige_export` and on `orkige_editor export`; the editor's **Build ▸ Export**
+menu and the MCP `export_project` verb both package the unsigned directory, and
+neither has a way to ask for anything else. What the editor contributes is the
+credential surface — **Build ▸ Project Settings ▸ Signing**, Windows /
+Distribution, which keeps the names in a per-project file outside every project
+tree and the password in this machine's Credential Manager
+([store-release.md](store-release.md) has the full model).
+
+`--sign` is **one ask on both desktops**; which platform's rules it means is
+decided by `--platform`. A credential aimed at the other platform's gate is
+refused by name rather than ignored.
+
 ### What the Windows package does not do
 
 Stated plainly, because each is a thing somebody will look for:
@@ -364,15 +515,6 @@ Stated plainly, because each is a thing somebody will look for:
   ([native-modules.md](native-modules.md)) is refused by name, as it is for
   Linux: the module build the exporter drives is written against an Apple
   toolchain today.
-- **No signing.** Unlike Linux, Windows *does* have a code-signing tier —
-  Authenticode, and the SmartScreen reputation that hangs off it — so this is a
-  gap rather than an absence. Nothing is configured and nothing can be
-  half-signed today; when it arrives it rhymes with
-  [the macOS tier above](#signing-a-macos-package-three-states-and-nothing-in-between),
-  which is the model for it: signing opt-in and always explicit, an unsigned
-  package byte-identical to one that never asked, credentials never in the
-  manifest, and a missing credential refusing rather than emitting a
-  half-signed artifact.
 - **A console window.** The player is a console-subsystem program, which is what
   makes its output and its exit code reach a caller — the property every test
   leg depends on — so a packaged game currently opens a console window beside
@@ -418,6 +560,21 @@ encloses it.
   every refusal (each naming its missing credential), the redaction, and the
   verdict parse where "we could not tell" and "Apple said yes" must never be
   the same answer. No certificate, no account, no network.
+- `tests/exporter/ExportWindowsSignTests.cpp` — the pure Authenticode
+  decisions: the whole `signtool` search (the numeric version ordering where
+  sorting as text picks a decade-old tool, the candidate paths, the `PATH`
+  split, and the named-tool override that refuses instead of falling back),
+  both command shapes, every refusal naming its missing credential, and the
+  redaction — together with the deliberate *non*-redaction of a thumbprint,
+  which is public. No certificate, no Windows SDK, no Windows.
+- `export_windows_signed` (Windows only) — the four refusal shapes run
+  credential-free on every Windows machine: no credential at all, a certificate
+  file with no password, a credential named without `--sign`, and `--notarize`
+  on a platform that has no such thing. Each must fail, name what is missing,
+  and leave no executable behind. The signature leg signs for real and puts the
+  result to `signtool verify /pa`, with the tool the export itself reported
+  rather than a second search that could disagree; on a machine that names no
+  certificate it SKIPS (77) rather than passing over nothing.
 - `export_macos_signed` (ctest) — the refusal leg runs everywhere: a signed
   export with no identity must fail, name the variable, and leave no artifact.
   The signature leg signs for real and puts the result to

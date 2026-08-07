@@ -763,16 +763,27 @@ browser are not there yet).
   `bundletool` resolved via `ORKIGE_BUNDLETOOL`) and `ios-ipa` **refuse rather
   than emit a half-signed artifact** when credentials are absent, and stay
   CLI-only (a headless MCP agent lacks the secrets) — `Docs/store-release.md`.
-- A macOS package is **ad-hoc signed by default**, byte-identical to what it has
-  always been. `--sign` seals it with a Developer ID identity + the hardened
-  runtime and a secure timestamp; `--notarize` additionally submits it to Apple
-  and staples the ticket only after an `Accepted` verdict read out of Apple's
-  own JSON. The whole command sequence is a pure planner spawning argv directly
-  (`tools/exporter/ExportMacosSign.h`), credential values are redacted out of
-  every echoed line, and a missing credential refuses by NAME instead of
-  emitting a half-signed app. Both flags are CLI-only for the store reason
-  above — Build ▸ Export and MCP `export_project` package the ad-hoc app — while
-  the credentials live in the editor's Signing tab. `Docs/desktop-export.md`.
+- **`--sign` is ONE desktop ask and `--platform` decides whose rules it means.**
+  A macOS package is **ad-hoc signed by default**, byte-identical to what it has
+  always been; `--sign` seals it with a Developer ID identity + the hardened
+  runtime and a secure timestamp, and `--notarize` additionally submits it to
+  Apple and staples the ticket only after an `Accepted` verdict read out of
+  Apple's own JSON (`tools/exporter/ExportMacosSign.h`). A Windows package is
+  **unsigned by default**; `--sign` writes an Authenticode signature over every
+  binary in it, from a machine-store certificate (`--windows-thumbprint`, the
+  route where no secret exists at all and which therefore WINS when both are
+  set) or a `.pfx` (`--windows-certificate`), countersigned through RFC 3161 —
+  and **nothing there corresponds to notarization**, so `--notarize` on Windows
+  refuses by name (`tools/exporter/ExportWindowsSign.h`). `signtool` is
+  LOCATED, never assumed: an explicit override, then every installed Windows
+  SDK newest-first (versions compared as NUMBERS), then `PATH`, all before a
+  single file is copied. Both files are pure planners spawning argv directly,
+  credential values are redacted out of every echoed line (a thumbprint
+  deliberately is not — it is public), and a missing credential refuses by NAME
+  instead of emitting a half-signed artifact. Every flag is CLI-only for the
+  store reason above — Build ▸ Export and MCP `export_project` package the
+  unsigned artifact — while the credentials live in the editor's Signing tab.
+  `Docs/desktop-export.md`.
 - **The CLI that ships is the EDITOR's** (`Docs/editor-cli.md`). `orkige_export`
   is a development-tree tool and is NOT part of a release, so on a machine
   carrying only a distributed Orkige the export capability lives inside the
