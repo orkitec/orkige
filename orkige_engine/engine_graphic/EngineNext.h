@@ -125,6 +125,8 @@ namespace Orkige
 		//! @copydoc Engine::setAtmosphereSky (classic)
 		void setAtmosphereSky(String const & skyType,
 			String const & skyboxTexture);
+		//! @copydoc Engine::setAtmosphereParts (classic)
+		void setAtmosphereParts(bool sky, bool fog);
 		//! @copydoc Engine::setImageLighting (classic)
 		void setImageLighting(bool enabled, float intensity);
 		//! @copydoc Engine::setBloom (classic)

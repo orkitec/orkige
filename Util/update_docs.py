@@ -359,12 +359,17 @@ def parse_oexports(text):
 
 
 def build_source_index():
-    """Every .cpp that could carry an OOBJECT_IMPL block (for OEXPORT resolve)."""
+    """Every .cpp that could carry an OOBJECT_IMPL block (for OEXPORT resolve).
+
+    SORTED walk: os.walk yields filesystem order, which on a fresh Linux
+    checkout is inode-hash order - a different file wins a duplicate-block
+    lookup on different machines. The index must not depend on the disk."""
     texts = []
     for base in (os.path.join(ROOT, "orkige_engine"),
                  os.path.join(ROOT, "orkige_core")):
-        for dirpath, _dirs, files in os.walk(base):
-            for fn in files:
+        for dirpath, dirs, files in os.walk(base):
+            dirs.sort()
+            for fn in sorted(files):
                 if fn.endswith(".cpp"):
                     try:
                         with open(os.path.join(dirpath, fn), "r",

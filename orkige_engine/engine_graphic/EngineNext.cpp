@@ -306,6 +306,20 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void Engine::setAtmosphereParts(bool sky, bool fog)
+	{
+		if(RenderSystem* renderSystem = this->getRenderSystem())
+		{
+			if(RenderWorld* world = renderSystem->getWorld())
+			{
+				AtmosphereDesc desc = world->getAtmosphere();
+				desc.sky = sky;
+				desc.fog = fog;
+				world->setAtmosphere(desc);
+			}
+		}
+	}
+	//---------------------------------------------------------
 	void Engine::setImageLighting(bool enabled, float intensity)
 	{
 		if(RenderSystem* renderSystem = this->getRenderSystem())
@@ -419,6 +433,8 @@ namespace Orkige
 		OFUNC(setAtmosphereBlend)
 		// sky visual type: engine:setAtmosphereSky("skybox", "night_sky.dds")
 		OFUNC(setAtmosphereSky)
+		// the two part switches: engine:setAtmosphereParts(sky, fog)
+		OFUNC(setAtmosphereParts)
 		// skybox-sourced IBL: engine:setImageLighting(enabled, intensity)
 		OFUNC(setImageLighting)
 		// LDR bloom: engine:setBloom(enabled, threshold, intensity) - a
