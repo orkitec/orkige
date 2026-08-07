@@ -13,6 +13,10 @@ water/mirror bands, terrain band) between the two images:
     BRDF/vertex-vs-pixel differences, tight enough that a black,
     inverted-hue or washed-out region on ONE flavor fails - and, on the
     mirror scene, that a planar mirror-strength drift fails);
+  * WATER bands additionally carry a STRUCTURE corridor: how much horizontal
+    texture the transmitted image holds, measured two ways and compared as a
+    next/classic RATIO. A mean is blind to it - water that lost its refracted
+    streaks and flattened into a smooth gradient keeps every mean it had;
   * scenes carrying the streak contract: both flavors must show the water's
     bright sun highlight (the specular streak - its absence on one flavor
     was a real regression).
@@ -84,6 +88,39 @@ from run_benchmark_pixel_test import decode_png, pixel  # noqa: E402
 #: flavor differences and tight enough that a black/inverted/washed region
 #: on one flavor (deltas 120+) or a mirror-strength drift fails.
 #:
+#: STRUCTURE FLOORS. A profile's optional `structure` block names WATER bands
+#: (never sky, terrain or shore) and gives each a `(detrended sd, gradient
+#: energy)` pair of next/classic ratio floors. It exists because a mean cannot
+#: see the one thing that matters most about water: whether it still shows a
+#: PICTURE. A transmitted image flattening toward a smooth depth gradient
+#: keeps every mean it had, and a real regression of exactly that shape passed
+#: every corridor above while these two readings separated it 2.4x.
+#:
+#: Gated as a RATIO because how much texture a scene contains is a property of
+#: the SCENE - only the two flavors' answers to the same frame are comparable.
+#: Measured on the developer pair (Metal against desktop GL), floors at ~0.55x
+#: the measurement, which catches any loss worse than 1.8x while the observed
+#: regression was 2.4x:
+#:
+#:   lake        water           sd 0.88 / grad 0.83
+#:   mirrorlake  watermirror_l   sd 1.65 / grad 1.52
+#:               watermirror_r   sd 1.62 / grad 1.35
+#:               rockmirror      sd 0.43 / grad 0.44
+#:               water_open      sd 5.95 / grad 1.19
+#:
+#: The CI pair is a different software rasterizer on each side and measures
+#: its own numbers; a floor that has to move moves with the measurement
+#: written beside it, never by loosening until a run passes.
+#:
+#: FLOOR ONLY, deliberately. Classic is the REFERENCE here - the reading of
+#: what the scene contains - and the two places its own structure is
+#: unreliable are documented open seams (the screen-UV mirror stretch and the
+#: unlit mirror body). A ceiling would fire on those seams, and it would fire
+#: again when either is FIXED and classic gains structure. The failure it
+#: would otherwise catch, classic's own water going flat, is gated where it
+#: belongs: per-flavor, by water_mirror_wobble, which floors classic's
+#: between-phase change on its own.
+#:
 #: A profile may also carry `env`: extra environment a capture of THAT scene
 #: boots under, applied on both roads (the run-both developer road and the
 #: per-flavor `--capture` a build matrix uses), because a pin is part of the
@@ -119,6 +156,9 @@ PROFILES = {
             # measurement, so the CI pair's own rasterizer spread fits
             "water": (0.05, 0.55, 0.35, 0.85, 14.0),
         },
+        # the refracted lake bed is what this band is FOR - measured sd 0.88,
+        # gradient 0.83 (STRUCTURE FLOORS above)
+        "structure": {"water": (0.50, 0.45)},
         "streak": True,
     },
     # the planar-mirror sibling: a low, close camera over a calm surface, the
@@ -163,6 +203,27 @@ PROFILES = {
             "rockmirror": (0.38, 0.38, 0.52, 0.50, 28.0),
             # measures 34; the body seam keeps it the widest corridor here
             "water_open": (0.05, 0.36, 0.35, 0.52, 50.0),
+        },
+        "structure": {
+            # the mirrored ridge, the sharpest transmitted detail either
+            # flavor shows here: measured sd 1.65 / grad 1.52 left,
+            # 1.62 / 1.35 right
+            "watermirror_l": (0.90, 0.80),
+            "watermirror_r": (0.90, 0.72),
+            # the waterline rocks through the streak column: the one band
+            # where classic carries MORE detail than next by a wide margin
+            # (measured sd 0.43 / grad 0.44, both against a classic reading
+            # several times next's), so its floors are set a little tighter
+            # in relative terms - 0.60x rather than 0.55x
+            "rockmirror": (0.26, 0.26),
+            # VANISH-ONLY floors, and the exception that proves the rule: the
+            # reference side of this band is classic's unlit mirror body, the
+            # named open seam, so its structure is not a stable denominator
+            # (measured sd 5.95 / grad 1.19, a ratio that says more about
+            # classic than about next and that FALLS when the seam closes).
+            # These two catch a transmitted image going away entirely and
+            # deliberately nothing finer
+            "water_open": (0.50, 0.50),
         },
         "streak": True,
     },
@@ -213,6 +274,14 @@ PROFILES = {
             # the near foreground, lit by the closest lamps (measures 0.2)
             "foreground": (0.10, 0.85, 0.90, 0.98, 14.0),
         },
+        # NO structure floors, and the reason is the scene: the bands here
+        # read 0.94-1.04 on both metrics, so stability is not what withholds
+        # them - coverage is. A structure floor exists for the one thing a
+        # mean is blind to, an image flattening while its brightness holds,
+        # and a lamp pool is additive falloff rather than transmitted
+        # imagery: there is nothing here that can go flat without moving its
+        # mean, which four corridors of 14 against measurements of 0.0-0.2
+        # already refuse by a wide margin.
         "streak": False,
         # equal lamp count on both flavors - see THE PIN above. Seeded as a
         # cvar boot override (underscores become dots), which is held and
@@ -283,6 +352,51 @@ def region_mean(img, x0, y0, x1, y1, step=4):
             total[2] += b
             count += 1
     return tuple(t / max(count, 1) for t in total)
+
+
+def band_structure(img, x0, y0, x1, y1):
+    """How much horizontal TEXTURE a band carries, as two numbers (pure).
+
+    A region mean says the two flavors agree on how bright the water is. It
+    says nothing about whether the water still shows a PICTURE - a refracted
+    scene flattening into a smooth depth gradient keeps its mean exactly and
+    loses everything that made it water. These two read that instead, both
+    over luma:
+
+      * DETRENDED SD: each pixel ROW's own mean is subtracted before the
+        deviation is measured, so the smooth top-to-bottom gradient every
+        water band carries contributes nothing and only the variation ALONG
+        a row survives - which is what a transmitted image is made of.
+      * GRADIENT ENERGY: the mean |dL/dx| across the band. The finest scale
+        of the same reading, and the one a blur cannot fake: smoothing an
+        image leaves its deviation largely intact and collapses this.
+
+    Read at FULL resolution in x - a gradient is a neighbour difference, and
+    a strided read would measure a different image.
+    """
+    width, height, channels, data = img
+    x1 = min(x1, width)
+    y1 = min(y1, height)
+    residual = 0.0
+    gradient = 0.0
+    samples = 0
+    steps = 0
+    for y in range(y0, y1):
+        row = []
+        for x in range(x0, x1):
+            r, g, b = pixel(data, channels, width, x, y)
+            row.append(0.2126 * r + 0.7152 * g + 0.0722 * b)
+        if not row:
+            continue
+        mean = sum(row) / len(row)
+        for value in row:
+            residual += (value - mean) * (value - mean)
+        samples += len(row)
+        for index in range(1, len(row)):
+            gradient += abs(row[index] - row[index - 1])
+        steps += len(row) - 1
+    return ((residual / samples) ** 0.5 if samples else 0.0,
+            gradient / steps if steps else 0.0)
 
 
 def region_max_luma(img, x0, y0, x1, y1, step=2):
@@ -458,6 +572,41 @@ def compare_captures(img_next, img_classic, scene, kept_in,
                            "the flavors no longer show the same scene "
                            f"(capture pair kept in {kept_in})")
 
+    # the WATER bands' structure, gated as a next/classic RATIO rather than as
+    # an absolute reading: how much texture a transmitted image carries is a
+    # property of the SCENE, and only the two flavors' answers to the same
+    # scene are comparable. Floor-only - see the STRUCTURE FLOORS note above.
+    for name, floors in profile.get("structure", {}).items():
+        sd_floor, gradient_floor = floors
+        x0, y0, x1, y1, _ = regions[name]
+        sd_next, gradient_next = band_structure(img_next, x0, y0, x1, y1)
+        sd_classic, gradient_classic = band_structure(img_classic,
+                                                      x0, y0, x1, y1)
+        for metric, value_next, value_classic, floor in (
+                ("detrended sd", sd_next, sd_classic, sd_floor),
+                ("gradient energy", gradient_next, gradient_classic,
+                 gradient_floor)):
+            if value_classic <= 0.0:
+                # the denominator IS the reference: a featureless classic band
+                # makes the ratio meaningless, and is itself the same
+                # regression one flavor over
+                fail_with_diff(
+                    f"region '{name}' carries no {metric} on classic "
+                    f"({value_classic:.3f}) - the reference image is flat, so "
+                    "there is no structure left to compare against "
+                    f"(capture pair kept in {kept_in})")
+            ratio = value_next / value_classic
+            print(f"crossflavor_parity: {name} {metric}: next="
+                  f"{value_next:.3f} classic={value_classic:.3f} "
+                  f"ratio={ratio:.2f} floor={floor:.2f}")
+            if ratio < floor:
+                fail_with_diff(
+                    f"region '{name}' lost its {metric} on next: "
+                    f"{value_next:.3f} against classic {value_classic:.3f} is "
+                    f"ratio {ratio:.2f} < {floor:.2f} - the water no longer "
+                    "carries the transmitted image the other flavor shows "
+                    f"(capture pair kept in {kept_in})")
+
     if profile.get("streak"):
         # the sun's specular streak on the water: both flavors must carry a
         # bright highlight down the frame centre (its absence on one flavor
@@ -480,18 +629,26 @@ def compare_captures(img_next, img_classic, scene, kept_in,
 
 # --- selftest ---------------------------------------------------------------
 
-def write_png(path, width, height, fill, poke=None):
+def write_png(path, width, height, fill, poke=None, stripe=0):
     """Write a minimal 8-bit RGB PNG of one colour (selftest fixture).
 
     poke=(x, y, colour) recolours a 2x2 block - the selftest's stand-in
     for the sun highlight the streak contract requires inside its centre
     band. A block rather than a pixel: the streak reader samples every
     second pixel, and a block covers both parities by construction.
+
+    stripe brightens every odd column by that much: a synthetic horizontal
+    TEXTURE, the stand-in for a transmitted image. The amplitude stays well
+    inside every band's mean corridor, so a striped fixture and a flat one
+    differ in structure and in nothing else - which is exactly the regression
+    shape the structure floors exist for.
     """
     raw = bytearray()
     for row in range(height):
         raw.append(0)                       # filter type None
-        raw.extend(bytes(fill) * width)
+        for column in range(width):
+            lift = stripe if column % 2 else 0
+            raw.extend(bytes(min(255, channel + lift) for channel in fill))
         if poke is not None and row in (poke[1], poke[1] + 1):
             for dx in (0, 1):
                 base = len(raw) - (width - (poke[0] + dx)) * 3
@@ -579,6 +736,100 @@ def selftest_capture_recipe():
         assert 0.0 < tolerance < 17.0, name
 
 
+#: the selftest fixtures' stripe amplitude - a texture the structure floors
+#: read and every mean corridor absorbs (the tightest is 15), so a striped
+#: fixture and a flat one are the same picture to every other gate here
+TEXTURE = 10
+
+
+def selftest_band_structure():
+    """The two structure readings, on images built to isolate what each says."""
+    def image(width, height, shade):
+        data = bytearray()
+        for y in range(height):
+            for x in range(width):
+                value = int(shade(x, y))
+                data.extend((value, value, value))
+        return (width, height, 3, data)
+
+    # THE DETRENDING. A pure VERTICAL gradient is the smooth depth ramp every
+    # water band carries, and it is not structure: each row is one constant,
+    # so subtracting the row's own mean leaves nothing, and there is no
+    # horizontal step anywhere. Both readings are zero
+    ramp = image(40, 40, lambda x, y: 20 + 4 * y)
+    sd, gradient = band_structure(ramp, 0, 0, 40, 40)
+    assert sd < 1e-9, sd
+    assert gradient < 1e-9, gradient
+
+    # the same amount of variation laid out HORIZONTALLY is structure, and
+    # survives whole: a linear ramp of step 4 reads gradient 4 exactly
+    across = image(40, 40, lambda x, y: 20 + 4 * x)
+    sd, gradient = band_structure(across, 0, 0, 40, 40)
+    assert sd > 40.0, sd
+    assert abs(gradient - 4.0) < 1e-9, gradient
+
+    # ... and a band that carries both reads the horizontal part alone
+    both = image(40, 40, lambda x, y: 20 + 4 * x + 2 * y)
+    assert abs(band_structure(both, 0, 0, 40, 40)[1] - 4.0) < 1e-9
+
+    # THE TWO METRICS ARE NOT ONE. Smoothing an image leaves its deviation
+    # intact and collapses its gradient, so a blurred transmitted image is
+    # caught by the second reading where the first says nothing: same
+    # amplitude, a quarter of the gradient energy
+    fine = image(40, 40, lambda x, y: 70 + 60 * (x % 2))
+    coarse = image(40, 40, lambda x, y: 70 + 60 * ((x // 4) % 2))
+    fine_sd, fine_gradient = band_structure(fine, 0, 0, 40, 40)
+    coarse_sd, coarse_gradient = band_structure(coarse, 0, 0, 40, 40)
+    assert abs(fine_sd - coarse_sd) < 1e-9, (fine_sd, coarse_sd)
+    assert coarse_gradient < 0.3 * fine_gradient, (fine_gradient,
+                                                   coarse_gradient)
+
+    # a band with nothing in it reads zero rather than dividing by nothing
+    empty = image(8, 8, lambda x, y: 50)
+    assert band_structure(empty, 4, 4, 4, 4) == (0.0, 0.0)
+
+
+def selftest_structure_gate(scratch, sun):
+    """A water band that lost its texture on next fails; a matched pair does
+    not. The fixtures differ in STRUCTURE alone - the stripe amplitude sits
+    inside every band's mean corridor, so the mean gate stays silent and only
+    the ratio floors speak."""
+    mirror = "scenes/mirrorlake.oscene"
+    textured = os.path.join(scratch, "textured.png")
+    flat = os.path.join(scratch, "flat.png")
+    write_png(textured, 64, 64, (80, 90, 100), poke=sun, stripe=TEXTURE)
+    write_png(flat, 64, 64, (80, 90, 100), poke=sun)
+
+    # both flavors carrying the same texture: ratio 1, and the reading is
+    # reported on the green run
+    code, said = run_quiet(["--compare-shots", "--scene", mirror,
+                            "--shot-next", textured,
+                            "--shot-classic", textured])
+    assert code == 0, said
+    assert "water_open detrended sd" in said and "ratio=1.00" in said, said
+
+    # next flattened: every mean still agrees (no region breach reported),
+    # and the floor is what refuses
+    code, said = run_quiet(["--compare-shots", "--scene", mirror,
+                            "--shot-next", flat,
+                            "--shot-classic", textured])
+    assert code == 1, said
+    assert "diverges between flavors" not in said, said
+    assert "lost its detrended sd" in said, said
+    assert "watermirror_l" in said, said
+
+    # ... and the same collapse one flavor over is named as what it is,
+    # rather than dividing by a flat reference
+    code, said = run_quiet(["--compare-shots", "--scene", mirror,
+                            "--shot-next", textured,
+                            "--shot-classic", flat])
+    assert code == 1 and "carries no detrended sd on classic" in said, said
+
+    # the night vignette carries no water and therefore no structure floors:
+    # its flat fixtures are a pass, which is what keeps this gate about water
+    assert "structure" not in PROFILES["lumens.oscene"]
+
+
 def selftest():
     scratch = tempfile.mkdtemp(prefix="orkige_crossflavor_selftest_")
     shot_next = os.path.join(scratch, "next.png")
@@ -589,15 +840,19 @@ def selftest():
     parity_diff.selftest_pure()
     parity_diff.selftest_roundtrip(decode_png, scratch)
     selftest_capture_recipe()
+    selftest_band_structure()
 
     # the mirror scene carries the streak contract like the lake does, so
-    # every fixture pokes a bright "sun" pixel into the streak band; the
-    # flat fill exercises the region comparison around it
+    # every fixture pokes a bright "sun" pixel into the streak band, and it
+    # carries the structure contract, so every fixture is striped - a water
+    # band with no texture at all is a refusal of its own (below). The even
+    # fill either side exercises the region comparison
     mirror = "scenes/mirrorlake.oscene"
     SUN = (32, 32, (255, 255, 255))
     diff_image = os.path.join(scratch, "next.diff.png")
-    write_png(shot_next, 64, 64, (80, 90, 100), poke=SUN)
-    write_png(shot_classic, 64, 64, (80, 90, 100), poke=SUN)
+    selftest_structure_gate(scratch, SUN)
+    write_png(shot_next, 64, 64, (80, 90, 100), poke=SUN, stripe=TEXTURE)
+    write_png(shot_classic, 64, 64, (80, 90, 100), poke=SUN, stripe=TEXTURE)
     code, said = run_quiet(["--compare-shots", "--scene", mirror,
                             "--shot-next", shot_next,
                             "--shot-classic", shot_classic])
@@ -608,7 +863,7 @@ def selftest():
 
     # a region that diverges beyond its corridor fails, names the region and
     # leaves the diff image beside the next capture
-    write_png(shot_classic, 64, 64, (200, 90, 100), poke=SUN)
+    write_png(shot_classic, 64, 64, (200, 90, 100), poke=SUN, stripe=TEXTURE)
     code, said = run_quiet(["--compare-shots", "--scene", mirror,
                             "--shot-next", shot_next,
                             "--shot-classic", shot_classic])
@@ -627,7 +882,7 @@ def selftest():
     assert os.path.exists(os.path.join(elsewhere, "next.diff.png"))
 
     # agreeing again takes the stale picture of the old divergence away
-    write_png(shot_classic, 64, 64, (80, 90, 100), poke=SUN)
+    write_png(shot_classic, 64, 64, (80, 90, 100), poke=SUN, stripe=TEXTURE)
     assert run_quiet(["--compare-shots", "--scene", mirror,
                       "--shot-next", shot_next,
                       "--shot-classic", shot_classic])[0] == 0

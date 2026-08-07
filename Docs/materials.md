@@ -614,23 +614,24 @@ legitimately differs between the flavors).
 
 ### Honest v1 boundaries (both flavors)
 
-- **No screen-space refraction distortion** and **no true depth-graded
-  deep→shallow transmission**. Both need a compositor refraction/depth pass (a
-  workspace restructure on next, out of scope for v1 and gated on NOT editing
-  `ports/`); a future desktop quality knob — see
-  `Docs/render-abstraction.md` ("Future desktop quality knob — water
-  refraction/depth pass"). The reflected `RenderWaterDesc` fields absorb it with
-  no shape change.
+- **No true depth-graded deep→shallow transmission.** Screen-space refraction
+  distortion ships on both flavors — the opt-in, capability-gated
+  `screenSpaceRefraction`/`refractionStrength` pair on `WaterComponent`, which
+  bends what is under the surface at a normal-perturbed screen UV (see
+  `Docs/render-abstraction.md`) — but what it samples is the scene colour, not
+  a water DEPTH: how far a ray travelled through the body does not grade the
+  transmitted tint. That needs the depth half of the same pass. The reflected
+  `RenderWaterDesc` fields absorb it with no shape change.
 - **Grazing-incidence streaking at the plane outline.** Near the silhouette the
   view compresses the ripple pattern along the grazing direction, so any tiling
   detail normal map foreshortens into faint streaks parallel to the plane edge.
   The generator keeps this below ordinary visibility (domain-warped noise, so
   no lattice-straight features; a wrapped high-pass, so coarse mip levels are
   near-flat and the tile repeat carries no coherent low-frequency blobs), but
-  the residual is physics: skybox-sourced image lighting (opt-in, above) adds
-  reflection variety that masks some of it, while the stronger masks —
-  screen-space refraction, or vertex waves breaking the silhouette — remain
-  registered absent / out of v1 scope.
+  the residual is physics: skybox-sourced image lighting and screen-space
+  refraction (both opt-in, above) add variety that masks some of it, while the
+  stronger mask — vertex waves breaking the silhouette — stays registered
+  absent / out of v1 scope.
 
 ### Generator + tests
 
