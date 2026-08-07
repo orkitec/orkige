@@ -389,7 +389,7 @@ jobs:
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
 
       - name: Restore vcpkg binary cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service; migrating is a deliberate cold-rebuild exercise
         with:
           path: /home/runner/vcpkg-binary-cache
           key: vcpkg-fuzz-${{ runner.os }}-${{ hashFiles('tests/fuzz/vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -397,7 +397,7 @@ jobs:
             vcpkg-fuzz-${{ runner.os }}-
 
       - name: Restore ccache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service; migrating is a deliberate cold-rebuild exercise
         with:
           path: /home/runner/.ccache
           key: ccache-fuzz-${{ runner.os }}-${{ github.sha }}
