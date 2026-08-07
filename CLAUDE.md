@@ -1426,7 +1426,7 @@ runs for branches that must be rebased anyway. The sixteen verdicts, plus the
 | Job | What it gates |
 |-----|---------------|
 | `linux-classic` / `linux-next` | the full windowed desktop suites under xvfb (llvmpipe / lavapipe); `linux-next` adds the `ORKIGE_SCRIPTING=OFF` build + unit gate |
-| `render-parity` (needs both Linux jobs) | the WYSIWYG gate: downloads the two flavor jobs' screenshots and compares them — facade pixels, window density, the output grade's induced deltas, the lake + planar-mirror benchmark vignettes, and the report-only feature sweep over every other selfcheck frame. No build, no GPU |
+| `render-parity` (needs both Linux jobs) | the WYSIWYG gate: downloads the two flavor jobs' screenshots and compares them, gates the 43-shot feature sweep, and runs the self-drift gate (each flavor against the previous green run's own frames - undeclared pixel movement fails) — facade pixels, window density, the output grade's induced deltas, the lake + planar-mirror benchmark vignettes, and the report-only feature sweep over every other selfcheck frame. No build, no GPU |
 | `linux-sanitizer` | CI-only ASan + UBSan tree, complete unit + desktop suite |
 | `linux-tsan` | ThreadSanitizer tree, headless unit gate only (windowed sets are too noisy under TSan) |
 | `host-exporter` | builds `orkige_export` on Linux and uploads it — the browser export needs a host exporter the wasm tree cannot build |

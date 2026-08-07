@@ -1,0 +1,4 @@
+{
+  "note": "Declared look changes for the self-drift gate (run_self_drift_test.py, whose docstring is the reference). A commit that moves a captured pixel names the shot here with the sentence that explains it; a commit that moves none leaves this list EMPTY - which is the steady state. An entry is consumed by the landing it belongs to: once that commit is the previous green run its frames no longer move, the entry covers nothing, and the gate fails as STALE until it is removed. There are no permanent allowances. Entry keys: 'pattern' (an exact root-relative shot name, or a glob - '*' crosses '/', so 'render_facade/*' is the whole facade sweep and '*water*' every frame naming water), 'reason' (required, non-empty), 'flavors' (optional, ['classic'] or ['next'] when only one backend's frames move; both by default).",
+  "changes": []
+}

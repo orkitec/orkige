@@ -154,6 +154,23 @@ add_test(NAME crossflavor_parity_driver_selftest
 set_tests_properties(crossflavor_parity_driver_selftest PROPERTIES
     LABELS unit TIMEOUT 60)
 
+# The SELF-drift gate's own self-test. The cross-flavor drivers above compare
+# classic against next; this one compares a flavor against ITS OWN previous
+# output, which is the comparison that catches a change moving both flavors
+# the same way. What it decides on fixtures is the whole contract: an
+# undeclared mover fails NAMED, a declared one passes, a declaration left in
+# place after its landing fails as STALE (there are no permanent allowances),
+# a group pattern covers a family, an identical pair moves nothing, and an
+# absent or empty capture directory FAILS rather than reporting stillness.
+# No captures, no window, no GPU.
+add_test(NAME self_drift_driver_selftest
+    COMMAND python3
+        "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_self_drift_test.py"
+        --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(self_drift_driver_selftest PROPERTIES
+    LABELS unit TIMEOUT 60)
+
 # the browser parity driver's pure parts: the region comparison and its
 # corridors, the refusals that keep a missing/blank/unreadable frame from
 # reading as parity, the browser-capture assertions (right rectangle, an

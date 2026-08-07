@@ -627,6 +627,13 @@ jobs:
       - linux-next
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # stated rather than inherited: the self-drift gate below reads this
+    # workflow's own run history and downloads an EARLIER run's artifacts,
+    # which is `actions: read`. Everything else here is a checkout and two
+    # same-run downloads, so read on both scopes is the whole ask.
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -690,12 +697,93 @@ jobs:
             --shot-classic parity/classic/mirrorlake/classic.png \
             --shot-next parity/next/mirrorlake/next.png
 
+      # THE SELF-DRIFT GATE. Every comparison above scores classic AGAINST
+      # next, so a change that moves both flavors the same way - or moves one
+      # inside the cross-flavor corridor - passes all of them. Nothing there
+      # compares a flavor against ITS OWN previous output, and that is the
+      # gap a real look regression has already travelled through green.
+      #
+      # So: each flavor's captures against the SAME flavor's captures from
+      # the last green `development` run, with every moved shot required to
+      # be named in tests/integration_driver/look_changes.json (the driver's
+      # docstring is the reference for the pattern vocabulary and for why an
+      # entry left behind fails as stale). Additive to this job - the current
+      # captures are already downloaded above, so this costs two artifact
+      # downloads, no build and no GPU.
+      - name: Find the previous green development run
+        if: always()
+        id: previous-green
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # the newest COMPLETED run of this workflow on development that
+          # concluded green, excluding this commit's own runs - comparing a
+          # commit against itself would pass by construction and prove
+          # nothing
+          run_id=$(gh api \
+            "repos/$REPO/actions/workflows/ci.yml/runs?branch=development&status=completed&per_page=30" \
+            --jq '[.workflow_runs[]
+                   | select(.conclusion == "success")
+                   | select(.head_sha != env.HEAD_SHA)][0].id // empty')
+          if [ -z "$run_id" ]; then
+            echo "::notice::No previous green development run exists, so the self-drift gate has no baseline to compare against and is skipped. It gates on the FIRST run that has one."
+            echo "found=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "baseline: development run $run_id"
+          echo "found=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Download the previous green run's captures
+        if: always()
+        id: previous-captures
+        if: steps.previous-green.outputs.found != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ steps.previous-green.outputs.found }}
+        run: |
+          set -euo pipefail
+          # An artifact past its retention is a baseline that no longer
+          # exists, which is a fact about the ARCHIVE and not about this
+          # commit's pixels. This gate guards drift, not archaeology, so it
+          # says so and stands down - never silently, and never as a failure.
+          ready=1
+          for flavor in classic next; do
+            if ! gh run download --repo "$REPO" "$RUN_ID" \
+                 --name "parity-shots-$flavor" --dir "previous/$flavor"; then
+              echo "::notice::The previous green development run ($RUN_ID) no longer carries the parity-shots-$flavor artifact (past its retention), so the self-drift gate has no baseline for either flavor and is skipped."
+              ready=0
+            fi
+          done
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+
+      - name: No pixel moved without a commit declaring it (self-drift gate)
+        if: always() && steps.previous-captures.outputs.ready == '1'
+        run: |
+          set -euo pipefail
+          # both flavors are run even when the first one fails: which of them
+          # moved is half the diagnosis, and stopping at classic would hide it
+          failed=0
+          for flavor in classic next; do
+            python3 tests/integration_driver/run_self_drift_test.py \
+              --flavor "$flavor" \
+              --previous "previous/$flavor" \
+              --current "parity/$flavor" \
+              --diff-dir parity/self-drift || failed=1
+          done
+          exit "$failed"
+
       - name: Upload the compared captures
         # a divergence is a LOOK verdict - the two frames are what a person
         # needs to read it, so they travel with the failure. A driver that
         # fails writes its diff image (`<frame>.diff.png` - the delta painted
         # over the scene) beside the frame it explains, which is inside this
-        # tree, so the picture rides out with no second upload path.
+        # tree, so the picture rides out with no second upload path. The
+        # self-drift gate's own pictures land in `parity/self-drift/` and
+        # ride the same way.
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
