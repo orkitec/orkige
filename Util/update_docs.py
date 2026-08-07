@@ -326,14 +326,34 @@ IMPL_RE_TMPL = (
 
 
 def find_object_impl(class_name, source_index):
-    """Locate class_name's OOBJECT_IMPL/OABSTRACT_IMPL block anywhere in the
-    indexed sources; return its member Symbols (Lua type name == class_name)."""
+    """Locate class_name's OOBJECT_IMPL/OABSTRACT_IMPL block(s) in the indexed
+    sources; return the member Symbols (Lua type name == class_name).
+
+    A class may carry one block per render flavor (Engine does), but they are
+    ONE script API: every block must list the same members. Verifying that
+    here is what makes a flavor-side omission a deterministic, named failure
+    instead of depending on which file a directory walk yields first."""
     rx = re.compile(IMPL_RE_TMPL % re.escape(class_name), re.DOTALL)
+    parsed = []
     for text in source_index:
         m = rx.search(text)
         if m:
-            return parse_usertype_block(class_name, m.group(1).splitlines())
-    return None
+            parsed.append(parse_usertype_block(class_name, m.group(1).splitlines()))
+    if not parsed:
+        return None
+    names = [tuple(s.name for s in block) for block in parsed]
+    if len(set(names)) > 1:
+        union = set().union(*[set(n) for n in names])
+        missing = sorted(
+            "%s (absent from a flavor's block)" % n
+            for n in union if any(n not in blk for blk in names))
+        raise SystemExit(
+            "error: %d %s blocks disagree on the script surface of '%s':\n"
+            "  %s\n"
+            "flavor-split export blocks are one API - add the missing OFUNC/"
+            "OPROPERTY entries so every block lists the same members"
+            % (len(parsed), "OOBJECT_IMPL", class_name, "\n  ".join(missing)))
+    return parsed[0]
 
 
 def parse_script_handles(source_index):
