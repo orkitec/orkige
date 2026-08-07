@@ -110,6 +110,42 @@ TEST_CASE("AtmosphereSunDrive: day fills brighter than night",
 	CHECK(day.classicSunScale > night.classicSunScale);
 }
 
+TEST_CASE("AtmosphereSunDrive: the flat classic ambient carries the "
+	"pipeline display transfer", "[atmosphere][sundrive]")
+{
+	// The flat classic ambient serves the consumers that never run the
+	// generated metal-rough stage, so it must arrive already carrying that
+	// pipeline's display transfer - sqrt(), the exponent
+	// Orkige_DisplayTransfer applies (@see MetalRoughLightingSrs.cpp). This
+	// is the ONLY gate on the value: no rendered frame in the parity suite
+	// reaches a non-generated material, so a wrong exponent here is invisible
+	// to every pixel comparison in the tree.
+	//
+	// The relation asserted is exact and closed-form: the flat value is the
+	// display-encoded LINEAR AVERAGE of the two hemisphere colours the
+	// generated scheme receives raw.
+	for(float elevation : { 0.99f, 0.6f, 0.3f, 0.05f })
+	{
+		for(AtmospherePreset::Sky sky :
+			{ AtmospherePreset::SKY_DAY, AtmospherePreset::SKY_NIGHT })
+		{
+			const Drive drive = driveFor(sky, elevation);
+			const float linearRed =
+				(drive.nextUpperRed + drive.nextLowerRed) * 0.5f;
+			const float linearGreen =
+				(drive.nextUpperGreen + drive.nextLowerGreen) * 0.5f;
+			const float linearBlue =
+				(drive.nextUpperBlue + drive.nextLowerBlue) * 0.5f;
+			CHECK(drive.classicAmbientRed ==
+				Catch::Approx(std::sqrt(linearRed)).epsilon(1e-5f));
+			CHECK(drive.classicAmbientGreen ==
+				Catch::Approx(std::sqrt(linearGreen)).epsilon(1e-5f));
+			CHECK(drive.classicAmbientBlue ==
+				Catch::Approx(std::sqrt(linearBlue)).epsilon(1e-5f));
+		}
+	}
+}
+
 TEST_CASE("AtmosphereSunDrive: the classic sun scale is the linear power",
 	"[atmosphere][sundrive]")
 {

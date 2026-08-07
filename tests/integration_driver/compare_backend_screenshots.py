@@ -320,7 +320,7 @@ FEATURE_SHOTS = {
     # -- fog.
     "selfcheck_fog_on.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "mean 0.28, outliers 0.00%, region tr 1.5"),
+        "mean 0.03, outliers 0.00%, region tl 0.1"),
     "selfcheck_fog_off.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
         "mean 0.04, outliers 0.00%, region centre 0.2"),
@@ -364,6 +364,15 @@ FEATURE_SHOTS = {
     "selfcheck_bloom_off_restored.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
         "mean 0.00, outliers 0.00%, region 0.0"),
+    # The bloom chain's intermediates are sRGB on this flavor while the
+    # graded path's are not, and that is deliberate: the bright-pass
+    # threshold is calibrated against LINEAR input, which the sRGB targets
+    # supply by decoding on sample. Handing it display-space colour instead
+    # puts most of a lamp-lit frame over the threshold and the glow swallows
+    # the scene (projects/benchmark scenes/lumens.oscene is the case that
+    # shows it; player_benchmark_lumens_probe gates it). The residual below
+    # is the chain's own filtering, and no pixel clears the outlier
+    # threshold in either shot.
     "selfcheck_bloom_on.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
         "mean 0.12, outliers 0.00%, region br 0.2"),

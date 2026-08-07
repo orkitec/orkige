@@ -29,16 +29,22 @@ namespace Orkige
 	//! so it unit-tests headlessly - AtmosphereSunDriveTests asserts the
 	//! monotone day->night behaviour both backends rely on.
 	//!
-	//! CALIBRATION (the classic* fields): the two flavors shade differently -
-	//! PBS divides the direct term by pi and (on a non-sRGB swapchain)
-	//! gamma-encodes its linear result in-shader, while classic Blinn-Phong
-	//! multiplies gamma-space colours directly. A single closed-form mapping
-	//! makes the flavors agree at the mid-grey reference surface (albedo 0.5,
-	//! lit head-on): classicLevel(x) = sqrt(2 x / pi) - the sqrt linearisation
-	//! of the encoded PBS response at that reference. It is monotone, so the
-	//! whole day->night arc keeps the same ordering on both flavors; it is NOT
-	//! a per-pixel match (lit 3D content is a tolerance-parity case, see
-	//! Docs/render-abstraction.md).
+	//! THE classic* FIELDS: both flavors evaluate one per-light response and
+	//! one display transfer - classic's generated surface materials run the
+	//! engine-owned metal-rough stage (@see MetalRoughLightingSrs.h), which
+	//! shades in LINEAR and applies the sqrt() display transfer in its own
+	//! pixel shader, exactly as the next flavor's shading does. Equal shader
+	//! inputs therefore give equal pixels, and the classic* fields carry the
+	//! SAME linear numbers as their next* siblings wherever a consumer reaches
+	//! that stage - no cross-flavor mapping is applied or needed.
+	//!
+	//! The one exception is @ref Drive::classicAmbientRed and its two
+	//! siblings, which serve the consumers that do NOT run that stage
+	//! (fixed-function fallback materials, and imported meshes keeping their
+	//! own materials). Those never apply the transfer themselves, so the value
+	//! they read must arrive already display-encoded - @see the derivation at
+	//! encodeAmbient below. Lit 3D content remains a tolerance-parity case
+	//! rather than a per-pixel match (Docs/render-abstraction.md).
 	namespace AtmosphereSunDrive
 	{
 		//! everything the linkage drives; next* fields are the linear model
@@ -362,19 +368,30 @@ namespace Orkige
 			out.nextLowerRed = lower.x;
 			out.nextLowerGreen = lower.y;
 			out.nextLowerBlue = lower.z;
-			// classic has flat ambient only: average the hemisphere in linear
-			// first (the setAmbientHemisphere averaged-flat precedent), then
-			// DISPLAY-ENCODE each channel with a SOFTENED exponent (x^(1/1.6)):
-			// the full display encode (1/2.2) matches the linear pipeline for a
-			// lone diffuse term, but the linear flavor's ambient path carries
-			// its own attenuations, and fully-encoded ambient OVERSHOT the
-			// night scenes ~2x (low levels lift hardest under the encode). The
-			// softened curve meets the measured night and day fills between
-			// the flavors; a raw linear ambient sat far too dark (the
-			// away-from-sun cube-face divergence)
+			// The flat scene ambient, for the consumers that do NOT run the
+			// generated metal-rough stage (fixed-function fallback materials,
+			// imported meshes keeping their own materials). The generated
+			// scheme reads the raw-linear nextUpper/nextLower hemisphere
+			// directly and encodes in its own shader, so it never reads this.
+			//
+			// Average the hemisphere in linear first (the
+			// setAmbientHemisphere averaged-flat precedent), then apply the
+			// display transfer THIS PIPELINE USES. That transfer is sqrt(),
+			// i.e. an exponent of 1/2.0 (@see MetalRoughLightingSrs.cpp,
+			// Orkige_DisplayTransfer at FFP_PS_POST_PROCESS) - the encode a
+			// non-generated material never gets to apply, so the value must
+			// arrive carrying it. Matching the pipeline's own exponent is what
+			// makes a fallback surface and a generated one read the same fill
+			// from one linear hemisphere.
+			//
+			// The exponent belongs to the transfer, not to a fit: it is one
+			// consumer applying one encode once. A gentler exponent only
+			// models a value that is ALSO fed to a shader which encodes again,
+			// where the doubled encode lifts low levels hardest and washes
+			// night fills out.
 			auto encodeAmbient = [](float linear)
 			{
-				return std::pow(std::max(linear, 0.0f), 1.0f / 1.6f);
+				return std::pow(std::max(linear, 0.0f), 1.0f / 2.0f);
 			};
 			out.classicAmbientRed = encodeAmbient((upper.x + lower.x) * 0.5f);
 			out.classicAmbientGreen = encodeAmbient((upper.y + lower.y) * 0.5f);
