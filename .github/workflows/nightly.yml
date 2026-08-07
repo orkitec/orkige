@@ -118,7 +118,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360 # cold vcpkg build headroom; cached runs take minutes
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Install system dependencies
         # the linux-next set: toolchain + X/Wayland dev libs (SDL3), plus the
@@ -241,7 +241,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360 # cold vcpkg build headroom; cached runs take minutes
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Install system dependencies
         # the linux-next toolchain + X/Wayland dev libs (the core unit suite
@@ -367,7 +367,7 @@ jobs:
       VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/triplets
       VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/ports
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Install system dependencies
         # the fuzz build is core-only (ORKIGE_BUILD_ENGINE=OFF), so no X / GL /
@@ -389,7 +389,7 @@ jobs:
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
 
       - name: Restore vcpkg binary cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/vcpkg-binary-cache
           key: vcpkg-fuzz-${{ runner.os }}-${{ hashFiles('tests/fuzz/vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -397,7 +397,7 @@ jobs:
             vcpkg-fuzz-${{ runner.os }}-
 
       - name: Restore ccache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: /home/runner/.ccache
           key: ccache-fuzz-${{ runner.os }}-${{ github.sha }}
@@ -592,7 +592,7 @@ jobs:
       # packaging composes are derived from one source at one revision.
       - name: Check out the proven-green commit
         if: steps.probe.outputs.green == 'true'
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ steps.probe.outputs.sha }}
 
@@ -645,7 +645,7 @@ jobs:
       EMSDK_VERSION: 6.0.3
       EMSDK: /home/runner/Development/emsdk
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           # the commit the matrix proved green - the same tree the editors that
           # will carry this payload are built from
@@ -763,7 +763,7 @@ jobs:
       CCACHE_DIR: /Users/runner/.ccache
       PRESET: ios-simulator-debug
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           # the commit the matrix proved green - the same tree the editors that
           # will fetch this payload are built from, which is what the pairing
@@ -873,7 +873,7 @@ jobs:
       CC: clang
       CXX: clang++
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           # the commit the matrix proved green - one night, one commit, and the
           # dated release tag is what pairs this with the editors beside it
@@ -1016,7 +1016,7 @@ jobs:
       # job's notes cannot claim more than the download delivers
       trust: ${{ steps.trust.outputs.trust }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           # the commit the matrix proved green, not whatever main is at now
           ref: ${{ needs.binaries-gate.outputs.sha }}
@@ -1352,7 +1352,7 @@ jobs:
       PRESET: linux-release-next
       ORKIGE_PLATFORM: linux
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ needs.binaries-gate.outputs.sha }}
           fetch-depth: 0          # the changelog's commit range
@@ -1640,7 +1640,7 @@ jobs:
       # reintroduces the short one by copying a neighbour.
       ORKIGE_PLATFORM: windows
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ needs.binaries-gate.outputs.sha }}
           fetch-depth: 0          # the changelog's commit range
@@ -1857,7 +1857,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ needs.binaries-gate.outputs.sha }}
           fetch-depth: 0          # the changelog's commit range
