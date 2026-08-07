@@ -352,8 +352,11 @@ namespace Orkige
 		//! SKY TYPE (AtmosphereDesc::skyType): what fills the sky pixels -
 		//! the procedural dome (default), a cubemap skybox
 		//! (AtmosphereDesc::skyboxTexture, a single cubemap image both
-		//! flavors load natively) or the flat sky-tint clear. Fog and the
-		//! sun/ambient drive are sky-type-independent (@see AtmosphereDesc).
+		//! flavors load natively) or the flat sky-tint clear. Fog and the sun
+		//! drive are sky-type-independent; the AMBIENT fill is the sky model's
+		//! own light, so only the procedural type drives it - a skybox or
+		//! colour sky fills from the ambient the scene authored through
+		//! setAmbientHemisphere (@see AtmosphereDesc).
 		//!
 		//! map: next=Ogre::AtmosphereNpr (sky dome + HlmsPbs-integrated object
 		//! fog + linked directional sun; sky media from the ogre-next port;

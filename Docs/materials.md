@@ -392,6 +392,25 @@ Scripts toggle the parts through `engine:setAtmosphereParts(sky, fog)`
 (sticky like `setAtmosphereSky` — the two switches survive later
 `setAtmosphere`/`setAtmosphereBlend` look calls).
 
+**Where the ambient fill comes from, per sky type.** The atmosphere's driven
+hemisphere fill is the SKY MODEL's own light, and that model is the procedural
+sky. Under `skyType = procedural` the fill is driven (both flavors evaluate one
+model, `core_util/AtmosphereSunDrive.h`, and `ambientPower` scales it). Under
+`skybox` or `colour` the scene shows a sky the model does not describe, so the
+fill is the ambient the scene AUTHORED — `RenderWorld::setAmbientHemisphere` /
+`setAmbientLight`, and nothing else; a scene that authors none leaves its
+shadowed surfaces unlit, which is the honest answer and not a flavor quirk.
+`ambientPower` scales the driven fill, so it does nothing on those types. The
+sun's colour arc and the object fog stay driven on all three (a skybox scene
+still darkens as its sun sets). A skybox scene that wants environment light
+gets it from the cubemap itself, through image lighting — the source the
+picture actually shows.
+
+The frames that hold this are the `render_facade_selfcheck` image-lighting leg
+on both flavors (the mirror plate under the debug cubemap authors no ambient
+and reads black with the reflection off) and the three gated `selfcheck_ibl_*`
+cross-flavor shots.
+
 **Sun resolution on load** — the atmosphere links to the FIRST directional
 light and reads its node direction as the sun. A sun authored ahead of its
 transform in scene-load order (components serialize alphabetically, so a Sun
@@ -723,6 +742,29 @@ which the `OrkigeDecalCompose` sub-render-state
 (`engine_render_classic/DecalComposeSrs.h`) computes per fragment on the
 composed alpha (texture alpha × the quad's vertex alpha) after texturing and
 before the blend. It is the transfer's own inverse, not a tuned curve.
+
+**Colour delta (a named divergence).** The two mechanisms read the decal
+texture's RGB differently, and only its ALPHA means the same thing on both.
+The native projected decal carries a metalness, and at its default of 1 the
+texture's RGB becomes the marked surface's F0 while its diffuse contribution
+is zeroed — a coloured mark hands the surface a coloured specular lobe. The
+classic quad composes that same RGB over the already-shaded framebuffer, so
+it reads as paint. The engine's own marks are BLACK (`decal_mark.png`), where
+both readings agree: black F0 with no diffuse and black paint over the surface
+both absorb. A coloured or white decal texture therefore looks like paint on
+classic and like a metal patch on next.
+
+Converging it costs more than it buys. Handing the native decal metalness 0
+makes its RGB lerp the surface's albedo — paint, matching classic — but it
+also hands the mark the dielectric F0 of 0.03 that a metalness-0 surface
+carries, and the classic quad has no counterpart for that: its mark blends
+over a framebuffer where the specular is already resolved, so a black mark
+absorbs the highlight too. Measured on the shipped blob, that move takes the
+gated `selfcheck_decal_mark` core band from 1.5 to 7.1 against a 4.0 bound and
+its largest differing region from 3.5 to 4.8 — it trades an invisible
+divergence for a visible one. Closing it properly means giving the classic
+quad a real material contribution instead of a blend, which is the deferred/
+projective path classic does not have.
 
 **Opacity / fade delta:** `setOpacity` dims the classic aligned quad's alpha
 smoothly (per-vertex). The native projected decal has NO per-decal alpha uniform,

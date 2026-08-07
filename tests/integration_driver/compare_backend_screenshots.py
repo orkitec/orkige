@@ -341,29 +341,27 @@ FEATURE_SHOTS = {
         "is not banked"),
 
     # -- image-based lighting, from the debug cube and the procedural sky.
-    # THE SKYBOX LEG (ibl_on/off/restored). Under a cubemap sky the driven
-    # hemisphere fill parts company: classic keeps filling from the procedural
-    # sky model while next drops to the authored ambient, which this scene
-    # never sets, so next's plate reads black where classic's carries a
-    # sky-coloured fill. That is one adjudicated flavor-model difference, and
-    # it is the whole content of these three entries' numbers - the bands
-    # below hold it as a ratchet, not as a verdict.
+    # THE SKYBOX LEG (ibl_on/off/restored): the mirror plate under the debug
+    # cubemap, in a scene that authors NO ambient. A cubemap sky is not the
+    # procedural sky model, so on both flavors the hemisphere fill is the
+    # authored ambient alone - black here - and the plate carries the
+    # cubemap reflection and nothing else. The three states are pixel-exact
+    # across the pair, so all three gate.
     "selfcheck_ibl_on.png": ShotCorridor(
-        6.0, 0.02, 16.0, False,
-        "mean 2.09, outliers 0.00%, region centre 13.0, bands edge/foot 16.0 "
-        "- the cubemap-lit plate plus classic's driven fill against next's "
-        "authored black",
-        mirror_wall_bands(18.0)),
+        6.0, 0.02, 6.0, True,
+        "the cubemap-lit plate: mean 0.00, outliers 0.00%, region 0.0, "
+        "bands edge/foot 0.0",
+        mirror_wall_bands(4.0)),
     "selfcheck_ibl_off.png": ShotCorridor(
-        9.0, 0.22, 52.0, False,
-        "mean 7.85, outliers 18.29%, region centre 48.4, bands edge 61.0 "
-        "foot 60.5 - classic's driven hemisphere fill against next's black",
-        mirror_wall_bands(64.0)),
+        6.0, 0.02, 6.0, True,
+        "the unfilled plate: mean 0.00, outliers 0.00%, region 0.0, "
+        "bands edge/foot 0.0",
+        mirror_wall_bands(4.0)),
     "selfcheck_ibl_restored.png": ShotCorridor(
-        9.0, 0.22, 52.0, False,
-        "mean 7.85, outliers 18.29%, region centre 48.4, bands edge 61.0 "
-        "foot 60.5 - same residual as ibl_off",
-        mirror_wall_bands(64.0)),
+        6.0, 0.02, 6.0, True,
+        "the toggle-identity frame, equal to ibl_off: mean 0.00, "
+        "outliers 0.00%, region 0.0, bands edge/foot 0.0",
+        mirror_wall_bands(4.0)),
     # THE PROCEDURAL LEG. The same metal plate under the captured procedural
     # sky, where both flavors DO drive the fill: converged to the level the
     # frame mean can no longer resolve once the driven hemisphere stopped

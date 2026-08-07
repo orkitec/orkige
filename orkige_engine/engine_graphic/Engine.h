@@ -346,9 +346,11 @@ protected:
 		//! @remarks STICKY: the chosen type + cubemap survive later
 		//! setAtmosphere/setAtmosphereBlend calls (those author the exposure/
 		//! fog arc, not the sky visual), until the next setAtmosphereSky. Fog
-		//! and the sun/ambient day/night drive are sky-type-independent; in
-		//! skybox mode the sky PICTURE is authored content and no longer
-		//! tracks the sun (@see AtmosphereDesc).
+		//! and the sun's day/night drive are sky-type-independent; the AMBIENT
+		//! fill is the sky model's own light, so 'procedural' drives it and the
+		//! other types fill from the authored ambient. In skybox mode the sky
+		//! PICTURE is authored content and no longer tracks the sun (@see
+		//! AtmosphereDesc).
 		void setAtmosphereSky(String const & skyType,
 			String const & skyboxTexture);
 		//! @brief toggle the enabled atmosphere's two PART switches -

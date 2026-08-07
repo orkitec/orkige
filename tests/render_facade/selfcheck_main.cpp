@@ -1913,6 +1913,17 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 				float offRed = 0, offGreen = 0, offBlue = 0;
 				SELFCHECK(probeWall(iblOffShot, offRed, offGreen, offBlue),
 					"the image-lighting-off probe decodes");
+				// THE AMBIENT SOURCE UNDER A NON-PROCEDURAL SKY. The scene
+				// showing here is the debug CUBEMAP, and the atmosphere's
+				// day/night model describes the PROCEDURAL sky - a different
+				// sky. So the fill is the authored ambient alone, which this
+				// scene set to black: with the environment reflection off the
+				// plate has no light source left and reads black. A flavor
+				// filling from the sky model it is not displaying lights this
+				// plate from an invisible sky, and shows up right here.
+				SELFCHECK(offRed < 0.03f && offGreen < 0.03f &&
+					offBlue < 0.03f,
+					"a cubemap sky fills ambient from the authored value only");
 
 				// ON: the wall gains the -X face's cyan (green + blue rise,
 				// red stays low - the debug cube's +X red can never leak in

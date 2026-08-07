@@ -16,9 +16,12 @@ namespace Orkige
 	//! @brief the sky VISUAL an enabled atmosphere draws - the type dialect of
 	//! AtmosphereDesc::skyType (pure, both flavors read the same words).
 	//!
-	//! The type selects ONLY what fills the sky pixels; fog and the
-	//! sun/ambient exposure drive ride the enabled atmosphere IDENTICALLY
-	//! across all three types (@see AtmosphereDesc).
+	//! The type selects what fills the sky pixels, and with it the AMBIENT
+	//! fill: the day/night model describes the procedural sky, so only that
+	//! type drives the hemisphere ambient from it - a cubemap or flat-colour
+	//! sky fills from the authored ambient alone. Fog and the linked sun's
+	//! colour ride the enabled atmosphere identically across all three types
+	//! (@see AtmosphereDesc).
 	namespace AtmosphereSky
 	{
 		enum Type
@@ -97,16 +100,21 @@ namespace Orkige
 	//! (the default; everything above applies verbatim), a @c skyboxTexture
 	//! cubemap (classic renders it through the native camera-bound sky box,
 	//! next samples the same cubemap on the sky quad - both flavors, same
-	//! picture), or the flat sky-tint clear alone. Fog and the sun/ambient
-	//! exposure drive are sky-type-INDEPENDENT: in skybox/colour mode the
-	//! linked sun still follows the SAME elevation-based day/night curve the
-	//! procedural sky drives (the @c sky* tint and @c density keep
-	//! parameterising that curve plus the window clear colour), scaled by
-	//! @c sunPower / @c ambientPower - the cubemap is authored content, so
-	//! the sky PICTURE no longer tracks the sun by construction (author the
-	//! skybox for the time of day it depicts). A missing/empty
-	//! @c skyboxTexture in skybox mode degrades honestly to the flat sky
-	//! tint with one log line.
+	//! picture), or the flat sky-tint clear alone. Fog and the linked SUN's
+	//! colour are sky-type-INDEPENDENT: in skybox/colour mode the sun still
+	//! follows the SAME elevation-based day/night curve the procedural sky
+	//! drives (the @c sky* tint and @c density keep parameterising that curve
+	//! plus the window clear colour), scaled by @c sunPower - the cubemap is
+	//! authored content, so the sky PICTURE no longer tracks the sun by
+	//! construction (author the skybox for the time of day it depicts).
+	//! The AMBIENT fill is not: it is the sky model's own light, and under a
+	//! skybox or colour sky that model draws nothing, so the fill is the
+	//! ambient the scene AUTHORED (@c ambientPower scales the driven fill and
+	//! therefore does nothing on those types; a skybox scene lights its
+	//! shadowed surfaces through @c RenderWorld::setAmbientHemisphere, or
+	//! through image lighting sourced from the cubemap itself). A
+	//! missing/empty @c skyboxTexture in skybox mode degrades honestly to the
+	//! flat sky tint with one log line.
 	//!
 	//! Field ranges + coupling (next flavor / AtmosphereNpr; verified against
 	//! the NprSky model - Components/Atmosphere in the Ogre-Next source):
@@ -140,6 +148,8 @@ namespace Orkige
 	//!    native fill; raise for flatter/softer shadows, lower toward 0 for hard,
 	//!    dark shadows. Also un-tonemapped, so it stacks with @c sunPower on
 	//!    sun-facing surfaces - keep their sum from over-driving bright albedos.
+	//!    It scales the DRIVEN fill, which exists under the procedural sky
+	//!    alone (@see @c skyType above).
 	struct AtmosphereDesc
 	{
 		bool	enabled;		//!< master switch: false = plain clear background, no fog

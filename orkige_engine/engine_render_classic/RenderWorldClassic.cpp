@@ -135,14 +135,35 @@ namespace Orkige
 			}
 		}
 
+		//! hand the AUTHORED hemisphere ambient back to the scene: the same two
+		//! writes RenderWorld::setAmbientHemisphere makes - the per-pixel
+		//! sub-render-state cache (blend axis straight up, the authored-ambient
+		//! convention) and the flat average every consumer off the generated
+		//! scheme reads. Called when the atmosphere lets the fill go.
+		void restoreAuthoredAmbient(Ogre::SceneManager* sceneManager,
+			Ogre::ColourValue const & authoredUpper,
+			Ogre::ColourValue const & authoredLower)
+		{
+			gAtmosphereDrivesAmbient = false;
+#ifdef USE_RTSHADER_SYSTEM
+			noteHemisphereAmbientColours(authoredUpper, authoredLower);
+#endif
+			sceneManager->setAmbientLight(
+				(authoredUpper + authoredLower) * 0.5f);
+		}
+
 		//! drive the linked sun's colour and the flat scene ambient from the
 		//! shared day/night curve (core_util/AtmosphereSunDrive.h - the SAME
 		//! model the next flavor's atmosphere evaluates natively, with the
 		//! classic exposure calibration documented there). The sun's
 		//! DIRECTION stays transform-authored on both flavors; only colour
-		//! and fill are driven.
+		//! and fill are driven. @p authoredUpper / @p authoredLower are the
+		//! facade's hemisphere cache - the fill a sky type this model does not
+		//! describe falls back to.
 		void driveSunExposure(Ogre::SceneManager* sceneManager,
-			AtmosphereDesc const & desc)
+			AtmosphereDesc const & desc,
+			Ogre::ColourValue const & authoredUpper,
+			Ogre::ColourValue const & authoredLower)
 		{
 			Ogre::Light* sun = RenderBackend::firstDirectionalLight();
 			if(gLinkedSun != sun)
@@ -178,34 +199,55 @@ namespace Orkige
 					std::max(driven.g, driven.b));
 				RenderBackend::noteSunDimmedForShadows(sunPeak < 0.0025f);
 			}
-			// generated surface materials evaluate the two-colour hemisphere PER
-			// PIXEL (@see HemisphereAmbientSrs.h): hand the sub-render-state the
-			// SAME raw-linear sky/ground colours the next flavor's HlmsPbs
-			// receives (drive.nextUpper/nextLower), so both flavors fill ambient
-			// from one sky/ground split - the softened averaged-flat classic
-			// value below is now ONLY for consumers off the generated scheme.
-			// The blend AXIS mirrors the native linkage's tilt: up plus the
-			// toward-the-sun vector half-turned about up, so a horizon-facing
-			// surface fills from the warm horizon band on both flavors.
+			// THE FILL'S SOURCE IS THE SKY THE SCENE SHOWS. This drive evaluates
+			// the PROCEDURAL sky model, so only a scene displaying that model
+			// fills its ambient from it. Under a cubemap or a flat-colour sky the
+			// scene shows a different sky entirely, and lighting its surfaces from
+			// a model nothing draws fills them from an invisible sky - so those
+			// types take the AUTHORED ambient alone, whatever the scene set. The
+			// other backend resolves the same way: its atmosphere writes the scene
+			// ambient only while attached, and it is attached only while the
+			// procedural sky is up. Fog and the sun linkage above stay live on
+			// every type - they are sky-type-independent by the desc's contract.
+			if(desc.skyType == AtmosphereSky::ST_PROCEDURAL)
+			{
+				// generated surface materials evaluate the two-colour hemisphere PER
+				// PIXEL (@see HemisphereAmbientSrs.h): hand the sub-render-state the
+				// SAME raw-linear sky/ground colours the next flavor's HlmsPbs
+				// receives (drive.nextUpper/nextLower), so both flavors fill ambient
+				// from one sky/ground split - the softened averaged-flat classic
+				// value below is now ONLY for consumers off the generated scheme.
+				// The blend AXIS mirrors the native linkage's tilt: up plus the
+				// toward-the-sun vector half-turned about up, so a horizon-facing
+				// surface fills from the warm horizon band on both flavors.
 #ifdef USE_RTSHADER_SYSTEM
-			Ogre::Vector3 hemiAxis = Ogre::Vector3::UNIT_Y +
-				Ogre::Vector3(-toSun.x, toSun.y, -toSun.z);
-			hemiAxis.normalise();
-			noteHemisphereAmbientColours(
-				Ogre::ColourValue(drive.nextUpperRed, drive.nextUpperGreen,
-					drive.nextUpperBlue, 1.0f),
-				Ogre::ColourValue(drive.nextLowerRed, drive.nextLowerGreen,
-					drive.nextLowerBlue, 1.0f),
-				hemiAxis);
+				Ogre::Vector3 hemiAxis = Ogre::Vector3::UNIT_Y +
+					Ogre::Vector3(-toSun.x, toSun.y, -toSun.z);
+				hemiAxis.normalise();
+				noteHemisphereAmbientColours(
+					Ogre::ColourValue(drive.nextUpperRed, drive.nextUpperGreen,
+						drive.nextUpperBlue, 1.0f),
+					Ogre::ColourValue(drive.nextLowerRed, drive.nextLowerGreen,
+						drive.nextLowerBlue, 1.0f),
+					hemiAxis);
 #endif
-			// the atmosphere's hemisphere fill, averaged flat (the softened
-			// classic subset) - written straight to the scene for fixed-function
-			// fallback materials and imported meshes keeping their own materials;
-			// it also keeps the AUTHORED hemisphere cache as the restore source
-			sceneManager->setAmbientLight(Ogre::ColourValue(
-				drive.classicAmbientRed, drive.classicAmbientGreen,
-				drive.classicAmbientBlue, 1.0f));
-			gAtmosphereDrivesAmbient = true;
+				// the atmosphere's hemisphere fill, averaged flat (the softened
+				// classic subset) - written straight to the scene for fixed-function
+				// fallback materials and imported meshes keeping their own materials;
+				// it also keeps the AUTHORED hemisphere cache as the restore source
+				sceneManager->setAmbientLight(Ogre::ColourValue(
+					drive.classicAmbientRed, drive.classicAmbientGreen,
+					drive.classicAmbientBlue, 1.0f));
+				gAtmosphereDrivesAmbient = true;
+			}
+			else if(gAtmosphereDrivesAmbient)
+			{
+				// the sky type changed out from under a live drive: the authored
+				// fill comes back EXACTLY, once (a type that never drove never
+				// touches the scene ambient at all)
+				restoreAuthoredAmbient(sceneManager, authoredUpper,
+					authoredLower);
+			}
 			// the atmospheric fog stage on the generated materials reads the
 			// SAME view-independent sky-model terms the other backend uploads
 			// for its object fog, under the SAME input conditioning its
@@ -1152,8 +1194,10 @@ namespace Orkige
 		}
 
 		// the sky VISUAL per type (AtmosphereDesc::skyType); fog above and the
-		// sun-exposure drive below are sky-type-independent - the desc's
-		// contract, so a skybox/colour scene keeps the same day/night arc
+		// SUN half of the drive below are sky-type-independent - the desc's
+		// contract, so a skybox/colour scene keeps the same day/night arc. The
+		// ambient half is not: it belongs to the sky model this drive
+		// evaluates, and follows the type (@see driveSunExposure)
 		if(desc.enabled)
 		{
 			if(!desc.sky)
@@ -1197,11 +1241,12 @@ namespace Orkige
 						? desc.skyboxTexture : String());
 			}
 			// sun-exposure linkage: drive the first directional light's
-			// colour + the flat ambient fill through the shared day/night
-			// curve (the next flavor gets the same drive natively from its
-			// atmosphere - AtmosphereDesc::sunPower/ambientPower now act on
-			// BOTH flavors)
-			driveSunExposure(this->mImpl->sceneManager, this->mImpl->atmosphere);
+			// colour through the shared day/night curve, and the ambient fill
+			// with it under the sky type that model describes (the next flavor
+			// gets the same drive natively from its atmosphere -
+			// AtmosphereDesc::sunPower/ambientPower act on both flavors)
+			driveSunExposure(this->mImpl->sceneManager, this->mImpl->atmosphere,
+				this->mImpl->ambientUpper, this->mImpl->ambientLower);
 		}
 		else
 		{
@@ -1211,9 +1256,9 @@ namespace Orkige
 				this->mImpl->skyDome->setVisible(false);
 			}
 			// restore-exactly: the linked sun returns to its authored
-			// colours, the scene ambient to the authored hemisphere average
-			// (only if the atmosphere was actually driving them); an
-			// atmosphere-imposed night dim lifts with the atmosphere
+			// colours, the ambient to the authored hemisphere (only if the
+			// atmosphere was actually driving them); an atmosphere-imposed
+			// night dim lifts with the atmosphere
 			RenderBackend::noteSunDimmedForShadows(false);
 			restoreLinkedSun();
 			// the atmospheric fog stage goes neutral with the atmosphere
@@ -1222,6 +1267,16 @@ namespace Orkige
 #endif
 			if(gAtmosphereDrivesAmbient)
 			{
+				// DELIBERATELY the flat term only, not restoreAuthoredAmbient:
+				// a disabled atmosphere leaves the per-pixel hemisphere where
+				// the drive left it, because the other backend's does the same
+				// (its atmosphere object is destroyed, and nothing re-pushes
+				// the scene ambient afterwards). Handing the authored
+				// hemisphere back here instead splits the flavors on the
+				// released-atmosphere frame - measured at mean 23.1 with 77%
+				// of pixels over the outlier threshold. The next ambient write
+				// the scene makes is what re-asserts the authored fill, on
+				// both flavors alike.
 				gAtmosphereDrivesAmbient = false;
 				this->mImpl->sceneManager->setAmbientLight(
 					(this->mImpl->ambientUpper + this->mImpl->ambientLower)
@@ -1427,7 +1482,8 @@ namespace Orkige
 			}
 			// re-resolve the sun-exposure linkage to the new first
 			// directional light (restores a leaving sun, takes the new one)
-			driveSunExposure(impl->sceneManager, impl->atmosphere);
+			driveSunExposure(impl->sceneManager, impl->atmosphere,
+				impl->ambientUpper, impl->ambientLower);
 		}
 	}
 	//---------------------------------------------------------
