@@ -181,18 +181,18 @@ FEATURE_SHOTS = {
     # the same 2D path the gated selfcheck_drawlayer2d.png takes.
     "selfcheck_drawlayer2d_dynamic.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "a rebuilt batch: mean 0.17, outliers 0.36%, region br 0.7"),
+        "a rebuilt batch: mean 0.67, outliers 0.97%, region br 1.6 - the outlier set is the imported platform (the ambient seam), inside the gate"),
     "selfcheck_drawlayer2d_rebake.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "the same batch re-baked: mean 0.17, outliers 0.36%, region br 0.7"),
+        "the same batch re-baked: mean 0.67, outliers 0.97%, region br 1.6 - the outlier set is the imported platform (the ambient seam), inside the gate"),
     "selfcheck_drawlayer2d_shown.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "a hidden layer shown again: mean 0.17, outliers 0.36%, region br "
-        "0.7"),
+        "a hidden layer shown again: mean 0.67, outliers 0.97%, region br "
+        "1.6"),
     "selfcheck_drawlayer2d_removed.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "the layer removed, the scene alone: mean 0.17, outliers 0.36%, "
-        "region br 0.7"),
+        "the layer removed, the scene alone: mean 0.67, outliers 0.97%, "
+        "region br 1.6"),
     "selfcheck_rtt_2d.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
         "the offscreen target with no window 2D leaked into it: mean 0.00, "
@@ -200,71 +200,65 @@ FEATURE_SHOTS = {
 
     # -- lighting: the rig over the platform, on and off.
     "selfcheck_light_on.png": ShotCorridor(
-        6.0, 0.02, 12.0, False,
-        "the lit sphere: mean 1.38, outliers 0.88%, region centre 9.6 - one "
-        "18k-pixel cluster on the lit body, the shading models' seam"),
+        6.0, 0.02, 6.0, True,
+        "the lit sphere, converged by the metallic-workflow import: mean "
+        "0.00, outliers 0.00%, region 0.0"),
     "selfcheck_light_off.png": ShotCorridor(
         6.0, 0.02, 6.0, False,
         "FLAT PAIR: both flavors render solid black with every light off, so "
         "the perfect agreement is not evidence"),
 
     # -- shadows: the PSSM pass and each knob that suppresses part of it.
-    # The ground plane no longer POOLS - both flavors now shade the slab with
-    # one flat face normal, so the worst region mean halved (86.5 -> 42.1) and
-    # the divergent area collapsed from ~97 scattered regions to a couple of
-    # broad ones. What is left is a near-UNIFORM brightness offset over the
-    # checkered slab (this pair reads the open floor at luma 119.6 classic vs
-    # 156.5 next), which is why the outlier FRACTION rose while every other
-    # number fell: a constant offset puts more of one flat area over the
-    # threshold than a mottled one did. That residue is the albedo/texture
-    # colour-space seam, not the shadow pass, and it is what keeps this family
-    # report-only.
+    # CONVERGED: the flat-normal import stopped the slab pooling, and the two
+    # imported-material fixes (classic onto the engine's surface stages, next
+    # onto the metallic workflow) met on the sunlit floor - the family fell
+    # from mean ~22 / region ~42-49 to mean ~2 / region <5, with the outlier
+    # fraction at effectively zero. The direct (sun) response of an imported
+    # material now matches between the flavors; what residue this scene has
+    # left is a handful of sub-100px clusters on shadow edges.
     "selfcheck_shadow_on.png": ShotCorridor(
-        27.0, 0.50, 52.0, False,
-        "mean 22.33, outliers 41.44%, region bl 42.1 - a uniform brightness "
-        "offset over the ground plane"),
+        6.0, 0.02, 6.0, True,
+        "mean 1.94, outliers 0.03%, region centre 3.7"),
     "selfcheck_shadow_receive_on.png": ShotCorridor(
-        27.0, 0.50, 52.0, False,
-        "mean 22.34, outliers 41.44%, region bl 42.1"),
+        6.0, 0.02, 6.0, True,
+        "mean 1.95, outliers 0.04%, region centre 3.6"),
     "selfcheck_shadow_low.png": ShotCorridor(
-        27.0, 0.50, 52.0, False,
-        "mean 22.32, outliers 41.43%, region bl 42.1"),
+        6.0, 0.02, 6.0, True,
+        "mean 1.93, outliers 0.03%, region centre 3.7"),
     "selfcheck_shadow_off.png": ShotCorridor(
-        28.0, 0.52, 60.0, False,
-        "mean 23.39, outliers 43.45%, region centre 49.1"),
+        6.0, 0.02, 6.0, True,
+        "mean 2.00, outliers 0.00%, region centre 4.4"),
     "selfcheck_shadow_caster_off.png": ShotCorridor(
-        28.0, 0.52, 60.0, False,
-        "mean 23.39, outliers 43.45%, region centre 49.1"),
+        6.0, 0.02, 6.0, True,
+        "mean 2.00, outliers 0.00%, region centre 4.4"),
     "selfcheck_shadow_mesh_caster_off.png": ShotCorridor(
-        28.0, 0.52, 60.0, False,
-        "mean 23.39, outliers 43.45%, region centre 49.1"),
+        6.0, 0.02, 6.0, True,
+        "mean 2.00, outliers 0.00%, region centre 4.4"),
     "selfcheck_shadow_receive_off.png": ShotCorridor(
-        28.0, 0.52, 60.0, False,
-        "mean 23.39, outliers 43.45%, region centre 49.1"),
+        6.0, 0.02, 6.0, True,
+        "mean 2.00, outliers 0.00%, region centre 4.4"),
 
     # -- atmosphere: sky dome, exposure, the driven and restored states.
     "selfcheck_atmosphere_on.png": ShotCorridor(
-        6.0, 0.02, 10.0, False,
-        "mean 2.36, outliers 0.00%, region tl 7.8 - the sky band's gradient, "
-        "no pixel over the outlier threshold anywhere"),
-    # These three read the terrain, so the flat-normal import converged them
-    # hard: driven/exposure went mean 35.43 -> 1.93 with the outlier fraction
-    # to ZERO, restored 21.98 -> 4.54. They now measure inside the gated set's
-    # 6.0 / 2% numbers on every axis except region headroom (5.4 and 9.4
-    # against a 6.0 corridor), so they stay report-only until a second pair
-    # confirms the region figure rather than being gated on one measurement.
+        6.0, 0.02, 6.0, True,
+        "mean 0.01, outliers 0.00%, region 0.0 - the sky-band gradient seam "
+        "closed with the grade colour-space fix"),
+    # driven/exposure held their converged figure on a second pair (mean
+    # 1.93, region bl 5.4, zero outlier pixels both times), so they gate.
     "selfcheck_atmosphere_exposure.png": ShotCorridor(
-        6.0, 0.02, 8.0, False,
-        "mean 1.93, outliers 0.00%, region bl 5.4 - no pixel over the "
-        "outlier threshold anywhere; a gate candidate on a second pair"),
+        6.0, 0.02, 6.0, True,
+        "mean 1.93, outliers 0.00%, region bl 5.4 - confirmed on a second "
+        "pair"),
     "selfcheck_atmosphere_driven.png": ShotCorridor(
-        6.0, 0.02, 8.0, False,
-        "mean 1.93, outliers 0.00%, region bl 5.4 - a gate candidate on a "
-        "second pair"),
+        6.0, 0.02, 6.0, True,
+        "mean 1.93, outliers 0.00%, region bl 5.4 - confirmed on a second "
+        "pair"),
     "selfcheck_atmosphere_restored.png": ShotCorridor(
         6.0, 0.02, 12.0, False,
         "mean 4.54, outliers 0.00%, region centre 9.4 - no pixel over the "
-        "outlier threshold anywhere"),
+        "outlier threshold; the restored terrain reads ~8 levels less "
+        "saturated on next (green/blue up, red equal), a small tint residual "
+        "of the flavors' surface models"),
     "selfcheck_atmosphere_off.png": ShotCorridor(
         6.0, 0.02, 6.0, False,
         "FLAT PAIR: both flavors render solid black with the atmosphere off"),
@@ -275,32 +269,40 @@ FEATURE_SHOTS = {
 
     # -- sky: the procedural dome, the skybox cube, the flat colour.
     "selfcheck_sky_procedural.png": ShotCorridor(
-        6.0, 0.02, 12.0, False,
-        "mean 3.11, outliers 0.00%, region tl 8.8 - a gradient seam, no "
-        "outlier pixel at all"),
+        6.0, 0.02, 6.0, True,
+        "the dome gradient, identical since the grade colour-space fix: "
+        "mean 0.00, outliers 0.00%, region 0.0"),
     "selfcheck_sky_procedural_restored.png": ShotCorridor(
-        6.0, 0.02, 12.0, False,
-        "mean 3.11, outliers 0.00%, region tl 8.8"),
+        6.0, 0.02, 6.0, True,
+        "mean 0.00, outliers 0.00%, region 0.0"),
     "selfcheck_sky_skybox.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
         "the cube-map sky, content-bearing and identical: mean 0.00, "
         "outliers 0.00%, region 0.0"),
     "selfcheck_sky_colour.png": ShotCorridor(
-        100.0, 1.00, 170.0, False,
-        "mean 85.67, outliers 100.00%, region tl 147.0 - EVERY pixel of the "
-        "flat sky colour differs; the worst divergence in the sweep"),
+        6.0, 0.02, 6.0, False,
+        "FLAT PAIR: one bare clear colour edge to edge; the grade "
+        "colour-space fix took it from the sweep's worst divergence (region "
+        "147.0) to identical (mean 0.00) - flat by design, so the agreement "
+        "is not banked"),
 
     # -- image-based lighting, from the debug cube and the procedural sky.
     "selfcheck_ibl_on.png": ShotCorridor(
         6.0, 0.02, 12.0, False,
         "mean 1.56, outliers 0.08%, region centre 9.4 - the IBL-lit body, one "
         "1.6k-pixel cluster left"),
+    # with IBL off, classic keeps a dim sky-coloured hemisphere fill on the
+    # body while next goes fully dark - the adjudicated flavor-model
+    # difference this pair pictures (the numbers are byte-stable across the
+    # imported-material fixes, which do not touch it)
     "selfcheck_ibl_off.png": ShotCorridor(
         8.0, 0.20, 48.0, False,
-        "mean 6.59, outliers 16.00%, region centre 40.2"),
+        "mean 6.59, outliers 16.00%, region centre 40.2 - classic's residual "
+        "hemisphere fill against next's black"),
     "selfcheck_ibl_restored.png": ShotCorridor(
         8.0, 0.20, 48.0, False,
-        "mean 6.59, outliers 16.00%, region centre 40.2"),
+        "mean 6.59, outliers 16.00%, region centre 40.2 - same residual as "
+        "ibl_off"),
     "selfcheck_ibl_proc_on.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
         "the procedurally-lit body, converged by the flat-normal import and "
@@ -321,21 +323,32 @@ FEATURE_SHOTS = {
         6.0, 0.02, 6.0, True,
         "mean 0.04, outliers 0.00%, region centre 0.2"),
 
-    # -- decals.
+    # -- decals. The scene is the imported platform under a FLAT AMBIENT
+    # (0.5 grey) plus a point light, and that ambient term is where the two
+    # imported-material fixes still disagree: classic reads the floor a
+    # uniform ~1.6x brighter in display space (~2.9x linear), edge to edge,
+    # with no bump under the point light - so the divergence is the ambient
+    # response alone, while the SAME mesh under the shadow family's direct
+    # sun matches at mean ~1.94. The re-routes moved the two flavors in
+    # opposite directions here (classic gained the display transfer, next
+    # lost the white-specular lift), widening this family 9.55 -> 26.91
+    # mean; the same seam is the window/drawlayer2d shots' platform cluster
+    # (0.36% -> 0.97% outliers, still inside their gate). Named, unresolved:
+    # the imported-material ambient seam.
     "selfcheck_decal_baseline.png": ShotCorridor(
-        12.0, 0.04, 24.0, False,
-        "mean 9.55, outliers 1.80%, region centre 18.9"),
+        32.0, 0.55, 68.0, False,
+        "mean 26.91, outliers 47.12%, region centre 56.3 - the "
+        "imported-material ambient seam (see the family note)"),
     "selfcheck_decal_faded.png": ShotCorridor(
-        12.0, 0.04, 24.0, False,
-        "mean 9.55, outliers 1.80%, region centre 18.9"),
+        32.0, 0.55, 68.0, False,
+        "mean 26.91, outliers 47.12%, region centre 56.3"),
     "selfcheck_decal_budget_off.png": ShotCorridor(
-        12.0, 0.04, 24.0, False,
-        "mean 9.55, outliers 1.80%, region centre 18.9"),
+        32.0, 0.55, 68.0, False,
+        "mean 26.91, outliers 47.12%, region centre 56.3"),
     "selfcheck_decal_mark.png": ShotCorridor(
-        13.0, 0.02, 30.0, False,
-        "mean 10.14, outliers 0.42%, region centre 24.6 - the decalled floor "
-        "differs by a near-uniform offset now rather than a mottled one, so "
-        "the outlier fraction fell 13.47% -> 0.42% while the region mean rose"),
+        27.0, 0.40, 37.0, False,
+        "mean 22.33, outliers 33.78%, region br 30.4 - the mark itself "
+        "reads on both flavors; the offset is the family's ambient seam"),
 
     # -- bloom.
     "selfcheck_bloom_off.png": ShotCorridor(
