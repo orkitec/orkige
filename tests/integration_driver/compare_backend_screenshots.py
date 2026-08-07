@@ -108,12 +108,31 @@ OUTLIER_FRACTION = 0.02       # fraction of differing pixels allowed
 
 # --- the feature sweep ------------------------------------------------------
 
+#: one NAMED BAND: a fraction-of-frame box plus its own mean-delta bound.
+#:
+#: The sweep's default regions are quarter-frame boxes, and a quarter frame
+#: DILUTES a narrow feature: a disagreement of a dozen levels across the ~2% of
+#: the frame where a slab turns edge-on to the camera moves a quadrant mean by
+#: about 0.2 and is invisible to every number in the table. A band names that
+#: strip and scores it alone, so the instrument matches the feature's size.
+#:
+#: The box is FRACTIONS of width/height, never pixels: the same entry has to
+#: mean the same part of the picture whatever surface the host hands the
+#: selfcheck (the window is requested in points and a capture arrives at the
+#: display's own backing scale). `delta` is that band's own corridor - an edge
+#: band and a whole quadrant do not answer to one number - and it is read under
+#: the SHOT's `gated` flag, so a band on a report-only entry is a ratchet.
+ShotBand = namedtuple("ShotBand", "name box delta")
+
 #: one shot's corridor in the sweep. `mean` and `outliers` score the WHOLE
 #: frame the way the pixel gate does; `region` bounds the per-region mean
 #: colour delta (the vignette gate's instrument, which sees a whole area
-#: shifting that a frame mean averages away). `gated` says whether a breach
-#: refuses or is merely reported - see FEATURE_SHOTS.
-ShotCorridor = namedtuple("ShotCorridor", "mean outliers region gated note")
+#: shifting that a frame mean averages away); `bands` adds this shot's own
+#: named strips, where one exists that the derived regions are too coarse to
+#: see. `gated` says whether a breach refuses or is merely reported - see
+#: FEATURE_SHOTS.
+ShotCorridor = namedtuple("ShotCorridor", "mean outliers region gated note "
+                          "bands", defaults=((),))
 
 #: the sweep's default region layout. No frame here has hand-drawn regions the
 #: way a benchmark vignette does, so the layout is derived from the frame: the
@@ -180,6 +199,34 @@ FLAT_FRAME_SPREAD = 1
 #: FLAT frame there (an unlit black scene, a bare clear colour), so the pair
 #: agrees perfectly while proving nothing. The sweep says so by name rather
 #: than banking the agreement.
+
+
+def mirror_wall_bands(delta):
+    """The mirror-wall shots' two bands, both bounded by `delta` (pure).
+
+    Those frames are one flat metal plate filling the middle of the picture
+    with a FIXED normal, so the only thing that varies across it is the view
+    angle: the strip along its top edge is the most grazing part of the plate
+    the camera sees, and the strip along its foot the other extreme. A
+    grazing-response divergence lives in exactly those strips, and a quadrant
+    mean cannot see it - the 5-level top-edge disagreement that named this
+    instrument moved the centre region by half a level.
+    """
+    return (ShotBand("edge", (0.36, 0.230, 0.64, 0.280), delta),
+            ShotBand("foot", (0.36, 0.740, 0.64, 0.780), delta))
+
+
+def decal_mark_bands(core, rim):
+    """The decal shot's two bands: the blob's core and its whole footprint.
+
+    The mark covers about a tenth of the frame and its CORE - where the
+    authored coverage peaks and the two flavors' blend curves diverge most - a
+    hundredth. `core` scores the peak, `rim` the footprint the falloff spans.
+    """
+    return (ShotBand("core", (0.45, 0.42, 0.55, 0.52), core),
+            ShotBand("rim", (0.34, 0.30, 0.66, 0.66), rim))
+
+
 FEATURE_SHOTS = {
     # -- 2D layers: the DrawLayer2D conformance pattern's siblings, through
     # the same 2D path the gated selfcheck_drawlayer2d.png takes.
@@ -248,22 +295,20 @@ FEATURE_SHOTS = {
         6.0, 0.02, 6.0, True,
         "mean 0.01, outliers 0.00%, region 0.0 - the sky-band gradient seam "
         "closed with the grade colour-space fix"),
-    # driven/exposure held their converged figure on a second pair (mean
-    # 1.93, region bl 5.4, zero outlier pixels both times), so they gate.
+    # the driven trio is the sun/ambient LINKAGE, and it is exact: both
+    # flavors normalize the driven sun and the driven hemisphere by the same
+    # sample of the same sky model, so the frames are identical.
     "selfcheck_atmosphere_exposure.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "mean 1.93, outliers 0.00%, region bl 5.4 - confirmed on a second "
-        "pair"),
+        "mean 0.00, outliers 0.00%, region 0.0"),
     "selfcheck_atmosphere_driven.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "mean 1.93, outliers 0.00%, region bl 5.4 - confirmed on a second "
-        "pair"),
+        "mean 0.00, outliers 0.00%, region 0.0"),
     "selfcheck_atmosphere_restored.png": ShotCorridor(
-        6.0, 0.02, 12.0, False,
-        "mean 4.54, outliers 0.00%, region centre 9.4 - no pixel over the "
-        "outlier threshold; the restored terrain reads ~8 levels less "
-        "saturated on next (green/blue up, red equal), a small tint residual "
-        "of the flavors' surface models"),
+        6.0, 0.02, 6.0, True,
+        "the restored terrain, gated once the driven fill stopped carrying "
+        "the linked light's exposure into its own normalizer: mean 0.58, "
+        "outliers 0.00%, region centre 2.2"),
     "selfcheck_atmosphere_off.png": ShotCorridor(
         6.0, 0.02, 6.0, False,
         "FLAT PAIR: both flavors render solid black with the atmosphere off"),
@@ -292,41 +337,57 @@ FEATURE_SHOTS = {
         "is not banked"),
 
     # -- image-based lighting, from the debug cube and the procedural sky.
+    # THE SKYBOX LEG (ibl_on/off/restored). Under a cubemap sky the driven
+    # hemisphere fill parts company: classic keeps filling from the procedural
+    # sky model while next drops to the authored ambient, which this scene
+    # never sets, so next's plate reads black where classic's carries a
+    # sky-coloured fill. That is one adjudicated flavor-model difference, and
+    # it is the whole content of these three entries' numbers - the bands
+    # below hold it as a ratchet, not as a verdict.
     "selfcheck_ibl_on.png": ShotCorridor(
-        6.0, 0.02, 12.0, False,
-        "mean 1.56, outliers 0.08%, region centre 9.4 - the IBL-lit body, one "
-        "1.6k-pixel cluster left"),
-    # with IBL off, classic keeps a dim sky-coloured hemisphere fill on the
-    # body while next goes fully dark - the adjudicated flavor-model
-    # difference this pair pictures (the numbers are byte-stable across the
-    # imported-material fixes, which do not touch it)
+        6.0, 0.02, 16.0, False,
+        "mean 2.18, outliers 0.08%, region centre 13.4, bands edge/foot 16.0 "
+        "- the cubemap-lit plate plus classic's driven fill against next's "
+        "authored black",
+        mirror_wall_bands(18.0)),
     "selfcheck_ibl_off.png": ShotCorridor(
-        8.0, 0.20, 48.0, False,
-        "mean 6.59, outliers 16.00%, region centre 40.2 - classic's residual "
-        "hemisphere fill against next's black"),
+        9.0, 0.22, 52.0, False,
+        "mean 7.97, outliers 18.56%, region centre 49.0, bands edge 61.0 "
+        "foot 60.5 - classic's driven hemisphere fill against next's black",
+        mirror_wall_bands(64.0)),
     "selfcheck_ibl_restored.png": ShotCorridor(
-        8.0, 0.20, 48.0, False,
-        "mean 6.59, outliers 16.00%, region centre 40.2 - same residual as "
-        "ibl_off"),
+        9.0, 0.22, 52.0, False,
+        "mean 7.97, outliers 18.56%, region centre 49.0, bands edge 61.0 "
+        "foot 60.5 - same residual as ibl_off",
+        mirror_wall_bands(64.0)),
+    # THE PROCEDURAL LEG. The same metal plate under the captured procedural
+    # sky, where both flavors DO drive the fill: converged to the level the
+    # frame mean can no longer resolve once the driven hemisphere stopped
+    # carrying the linked light's exposure knob into its own normalizer. The
+    # grazing bands are what say so - they read 5.2/11.0 before and 0.4/1.0
+    # after, while the centre region moved 2.8 -> 2.3 and 6.2 -> 3.5.
     "selfcheck_ibl_proc_on.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "the procedurally-lit body, converged by the flat-normal import and "
-        "now gated: mean 0.77, outliers 0.20%, region centre 2.8"),
+        "mean 0.33, outliers 0.21%, region centre 2.3, bands edge 0.4 "
+        "foot 0.4 - one 1.1k-pixel cluster on the sun highlight is the "
+        "remainder",
+        mirror_wall_bands(4.0)),
     "selfcheck_ibl_proc_off.png": ShotCorridor(
-        6.0, 0.02, 8.0, False,
-        "mean 1.60, outliers 0.30%, region centre 6.2 - one 6.2k-pixel "
-        "cluster on the body"),
+        6.0, 0.02, 6.0, True,
+        "the same plate with the environment fill off, now gated: mean 0.50, "
+        "outliers 0.31%, region centre 3.5, bands edge 1.0 foot 0.4",
+        mirror_wall_bands(4.0)),
 
     # -- fog.
     "selfcheck_fog_on.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "mean 0.03, outliers 0.00%, region tl 0.1"),
+        "mean 0.03, outliers 0.00%, region tr 0.1"),
     "selfcheck_fog_off.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "mean 0.04, outliers 0.00%, region centre 0.2"),
+        "mean 0.03, outliers 0.00%, region tr 0.1"),
     "selfcheck_fog_switchoff.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "mean 0.04, outliers 0.00%, region centre 0.2"),
+        "mean 0.03, outliers 0.00%, region tr 0.1"),
 
     # -- decals. The scene is the imported platform under a FLAT AMBIENT
     # (0.5 grey) plus a point light, which makes this family the one place
@@ -335,12 +396,13 @@ FEATURE_SHOTS = {
     # CONVERGED: the two flavors now evaluate one authored fill by one
     # formula (ambient x albedo), so the floor agrees edge to edge and the
     # family fell from mean 26.91 / 47.12% outliers / region 56.3 to mean
-    # 0.10 with no pixel over the outlier threshold. The three floor-only
-    # shots gate. What is left is `decal_mark` alone, and it is the MARK,
-    # not the floor: the flavors reach the same surface by different
-    # mechanisms (a true projected decal against an aligned-quad subset),
-    # so the blob's falloff differs over its own footprint while the
-    # platform around it is clean.
+    # 0.10 with no pixel over the outlier threshold.
+    # The MARK converged after it: the flavors reach the same surface by
+    # different mechanisms (a true projected decal against an aligned quad),
+    # and the mechanisms compose in different SPACES - one lerps the
+    # surface's linear albedo before the display transfer, the other blends
+    # over the encoded framebuffer. Carrying one coverage across that
+    # transfer closed the family, so all four shots gate.
     "selfcheck_decal_baseline.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
         "the lit floor, converged by the one-ambient-response fix and now "
@@ -352,10 +414,12 @@ FEATURE_SHOTS = {
         6.0, 0.02, 6.0, True,
         "mean 0.10, outliers 0.00%, region 0.0"),
     "selfcheck_decal_mark.png": ShotCorridor(
-        6.0, 0.02, 28.0, False,
-        "mean 3.71, outliers 0.94%, region centre 22.0 - the floor around "
-        "the mark is clean; the residual is the blob's own footprint, where "
-        "the two marking mechanisms fall off differently"),
+        6.0, 0.02, 6.0, True,
+        "mean 1.14, outliers 0.00%, region centre 3.5, bands core 1.5 rim "
+        "4.5 - the blob's core came from 38.1 to 1.5 when the coverage "
+        "crossed the display transfer; the rim residual is the two "
+        "footprints' own shapes",
+        decal_mark_bands(4.0, 7.0)),
 
     # -- bloom.
     "selfcheck_bloom_off.png": ShotCorridor(
@@ -375,7 +439,7 @@ FEATURE_SHOTS = {
     # threshold in either shot.
     "selfcheck_bloom_on.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
-        "mean 0.12, outliers 0.00%, region br 0.2"),
+        "mean 0.28, outliers 0.00%, region centre 0.8"),
     "selfcheck_bloom_high.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
         "mean 0.10, outliers 0.00%, region centre 0.2"),
@@ -694,15 +758,43 @@ def region_deltas(classic, nxt, step=4):
     return result
 
 
+def band_box(width, height, fractional):
+    """One band's pixel box for a frame of this size (pure).
+
+    The fractions are resolved against the frame and clamped to at least one
+    row and column, so a band stays a real sample on a small frame instead of
+    silently measuring nothing.
+    """
+    fx0, fy0, fx1, fy1 = fractional
+    x0, y0 = int(fx0 * width), int(fy0 * height)
+    x1, y1 = int(fx1 * width), int(fy1 * height)
+    return (x0, y0, max(x1, x0 + 1), max(y1, y0 + 1))
+
+
+def band_deltas(classic, nxt, bands, step=1):
+    """Per-band max channel delta of the two frames' band means (pure).
+
+    Stepped every pixel, not every fourth: a band is already a small box, and
+    the whole reason it exists is that averaging over more area hides it.
+    """
+    result = []
+    for band in bands:
+        box = band_box(classic[0], classic[1], band.box)
+        mean_c = region_mean(classic, box, step)
+        mean_n = region_mean(nxt, box, step)
+        result.append((band, max(abs(a - b) for a, b in zip(mean_c, mean_n))))
+    return result
+
+
 #: one shot's measured numbers. `worst_region`/`worst_delta` name the region
 #: that disagrees most, which is the sweep's severity key.
 ShotMeasurement = namedtuple(
     "ShotMeasurement",
     "shot mean outlier_fraction regions worst_region worst_delta spatial "
-    "pixel_count flat")
+    "pixel_count flat bands", defaults=((),))
 
 
-def measure_pair(shot, classic_path, next_path):
+def measure_pair(shot, classic_path, next_path, bands=()):
     """Score one pair: frame mean, outlier fraction, regions, cluster shape.
 
     One `delta_map` pass produces the mean, the outliers and the spatial
@@ -731,7 +823,8 @@ def measure_pair(shot, classic_path, next_path):
         spatial=parity_diff.spatial_summary(dmap, FEATURE_OUTLIER_TOLERANCE),
         pixel_count=pixel_count,
         flat=(frame_spread(classic) <= FLAT_FRAME_SPREAD and
-              frame_spread(nxt) <= FLAT_FRAME_SPREAD)), dmap, classic)
+              frame_spread(nxt) <= FLAT_FRAME_SPREAD),
+        bands=band_deltas(classic, nxt, bands)), dmap, classic)
 
 
 def measurement_line(measurement, corridor=None):
@@ -744,6 +837,11 @@ def measurement_line(measurement, corridor=None):
                          f"{corridor.outliers * 100.0:.0f}% region "
                          f"{corridor.region:.1f}"
                          f"{'' if corridor.gated else ', report-only'}]")
+    bands = ""
+    if measurement.bands:
+        bands = "; bands " + " ".join(
+            f"{band.name}={delta:.1f}/{band.delta:.1f}"
+            for band, delta in measurement.bands)
     return (f"{measurement.shot}: mean {measurement.mean:.2f} outliers "
             f"{measurement.outlier_fraction * 100.0:.2f}% worst region "
             f"{measurement.worst_region}={measurement.worst_delta:.1f}; "
@@ -751,7 +849,7 @@ def measurement_line(measurement, corridor=None):
                                    measurement.pixel_count,
                                    FEATURE_OUTLIER_TOLERANCE)
             + (" [FLAT PAIR]" if measurement.flat else "")
-            + corridor_text)
+            + bands + corridor_text)
 
 
 def corridor_breaches(measurement, corridor):
@@ -767,6 +865,10 @@ def corridor_breaches(measurement, corridor):
         breaches.append(f"region {measurement.worst_region} "
                         f"{measurement.worst_delta:.1f} > "
                         f"{corridor.region:.1f}")
+    for band, delta in measurement.bands:
+        if delta > band.delta:
+            breaches.append(f"band {band.name} {delta:.1f} > "
+                            f"{band.delta:.1f}")
     return breaches
 
 
@@ -834,7 +936,7 @@ def feature_sweep(classic_out, next_out, report_only=False, diff_dir=None,
             continue
         try:
             measurement, dmap, reference = measure_pair(
-                shot, classic_path, next_path)
+                shot, classic_path, next_path, FEATURE_SHOTS[shot].bands)
         except (ValueError, OSError) as error:
             print(f"FAIL {shot}: {error}")
             failures += 1
@@ -1230,6 +1332,38 @@ def selftest_region_math():
     assert max(delta for _name, delta in deltas.items()) < 6.0, deltas
 
 
+def selftest_band_math():
+    """A band resolves to the fraction of the frame it names, and sees a
+    strip a quarter-frame region averages away."""
+    side = 64
+    # a flat field, and a copy whose TOP TENTH is 40 levels brighter
+    field = bytearray([80] * (side * side * 3))
+    striped = bytearray(field)
+    for y in range(0, side // 10):
+        for x in range(side):
+            striped[(y * side + x) * 3:(y * side + x) * 3 + 3] = b"\x78\x78\x78"
+    flat_image = (side, side, 3, field)
+    striped_image = (side, side, 3, striped)
+
+    # the derived quadrants DILUTE it: a tenth of a half-height box at 40
+    # levels moves that box's mean by about four
+    quadrants = dict(region_deltas(flat_image, striped_image, step=1))
+    assert max(quadrants.values()) < 10.0, quadrants
+
+    # a band naming that strip reads the strip's own delta
+    band = ShotBand("edge", (0.0, 0.0, 1.0, 0.1), 6.0)
+    (measured_band, delta), = band_deltas(flat_image, striped_image, [band])
+    assert measured_band is band
+    assert 39.0 < delta < 41.0, delta
+
+    # the box is FRACTIONS, resolved against whatever frame arrives, and
+    # never degenerate
+    assert band_box(100, 200, (0.0, 0.0, 1.0, 0.1)) == (0, 0, 100, 20)
+    assert band_box(1920, 1080, (0.36, 0.23, 0.64, 0.28)) == \
+        (691, 248, 1228, 302)
+    assert band_box(8, 8, (0.5, 0.5, 0.5, 0.5)) == (4, 4, 5, 5)
+
+
 def selftest_corridor_table():
     """The corridor table is well-formed and says which shots it gates."""
     for shot, corridor in FEATURE_SHOTS.items():
@@ -1240,6 +1374,22 @@ def selftest_corridor_table():
         assert isinstance(corridor.gated, bool), shot
         # every entry carries the measurement its corridor came from
         assert corridor.note and len(corridor.note) > 20, shot
+        for band in corridor.bands:
+            assert isinstance(band, ShotBand), shot
+            assert band.name and band.delta > 0, shot
+            fx0, fy0, fx1, fy1 = band.box
+            assert 0.0 <= fx0 < fx1 <= 1.0, (shot, band.name)
+            assert 0.0 <= fy0 < fy1 <= 1.0, (shot, band.name)
+            # a band exists to be SHARPER than the derived regions - one
+            # bounded looser than the whole-frame region corridor would only
+            # add noise to the table
+            assert band.delta <= corridor.region * 1.5, (shot, band.name)
+        # the band names are this shot's own vocabulary: no duplicates
+        names = [band.name for band in corridor.bands]
+        assert len(names) == len(set(names)), shot
+    # the sharper instrument is actually armed somewhere it gates
+    assert any(corridor.bands and corridor.gated
+               for corridor in FEATURE_SHOTS.values())
     # the two sets are disjoint: the pixel gate's four are not re-scored here
     assert not set(FEATURE_SHOTS) & set(COMPARED_SHOTS)
     # the sweep is worth running: some of it actually gates
@@ -1257,10 +1407,21 @@ def selftest_corridor_table():
     assert "mean 9.00 > 6.0" in said and "region tl 99.0 > 6.0" in said, said
     assert "outliers" not in said, said
 
+    # a band breaches on ITS OWN bound, while every frame-wide number stays
+    # inside - the whole point of the instrument
+    band = ShotBand("edge", (0.0, 0.0, 1.0, 0.1), 4.0)
+    banded = corridor._replace(bands=(band,))
+    assert corridor_breaches(clean._replace(bands=((band, 3.9),)),
+                             banded) == []
+    said = "; ".join(corridor_breaches(clean._replace(bands=((band, 12.5),)),
+                                       banded))
+    assert said == "band edge 12.5 > 4.0", said
+
 
 def selftest_feature_sweep(scratch):
     """The sweep end to end: verdicts, the refusals, the flat-pair rule."""
     selftest_region_math()
+    selftest_band_math()
     selftest_corridor_table()
 
     classic = os.path.join(scratch, "fclassic")

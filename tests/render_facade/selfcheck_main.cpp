@@ -2740,6 +2740,21 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		const float markDelta = std::abs(markLum - baseLum);
 		SELFCHECK(markDelta > 0.06f,
 			"the decal visibly marks the surface");
+		// HOW MUCH it marks, not just that it does - and the number is
+		// derived, so BOTH flavors answer it without either being calibrated
+		// against the other. The blob's authored coverage peaks at 0.75 and a
+		// mark REMOVES that fraction of the surface's LINEAR light, so what
+		// survives is 1-0.75 = 0.25 of it; the engine's display transfer is
+		// sqrt, so the probed pixel must read sqrt(0.25) = 0.5 of the
+		// baseline. The corridor is wide because the probe sits near, not
+		// exactly on, the peak and the floor carries a specular lane the mark
+		// does not fully take with it (both flavors measure ~0.55).
+		const float markRatio = baseLum > 0.0f ? markLum / baseLum : 0.0f;
+		std::printf("render_facade_selfcheck: decal survival %.3f "
+			"(sqrt(1 - 0.75) = 0.500)\n", markRatio);
+		SELFCHECK(markRatio > 0.42f && markRatio < 0.68f,
+			"the mark leaves the display image of the linear light its "
+			"coverage spares");
 		SELFCHECK(world->getVisibleDecalCount() == 1u,
 			"one decal is visible under the budget");
 

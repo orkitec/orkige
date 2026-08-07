@@ -187,8 +187,7 @@ namespace Orkige
 			//! the atmosphere colour along @p viewDir - the sky model sampled
 			//! on the CPU, mirroring the native evaluation (sun disk optional)
 			inline V3 atmosphereAt(AtmosphereDesc const & desc, V3 toSun,
-				float sunHeight, V3 viewDir, bool skipSun,
-				float sunDiskPower = kSkySunDiskPower)
+				float sunHeight, V3 viewDir, bool skipSun)
 			{
 				V3 dir = normalize(viewDir);
 				const SkyTerms terms = skyTerms(desc, toSun, sunHeight);
@@ -215,19 +214,19 @@ namespace Orkige
 				// the native disk exponent carries a 0.25 scale; inert for the
 				// sun/ambient linkage (its samples sit at lDotV 1 or skip the
 				// sun) but it shapes the dome/IBL pixels sampled off-axis. The
-				// disk MULTIPLIER, however, is NOT inert for the linkage: the
-				// native getAtmosphereAt scales the sun disk by the sun POWER
-				// (getSunDisk's sunPower arg), and since the disk term is added
-				// AFTER the haze is scaled by lightDensity*finalMultiplier, its
-				// weight relative to the (bluer) haze sets how warm the
-				// normalized sun colour reads. The dome/IBL callers keep the
-				// neutral kSkySunDiskPower default (their look is calibrated +
-				// byte-stable); the sun-colour linkage passes desc.sunPower so
-				// the classic driven sun carries the SAME grazing warmth the
-				// native atmosphere gives next (AtmosphereSunDriveTests locks the
-				// day/noon ratio; the render_facade driven-sun probe the sweep).
+				// disk MULTIPLIER is the native model's own sun power, which
+				// stays at its preset default on both flavors: the sky model
+				// carries the disk, and @c AtmosphereDesc::sunPower is the
+				// LINKED LIGHT's power scale, applied to the light after this
+				// sample rather than inside it. That distinction is
+				// load-bearing, because the disk term adds AFTER the haze is
+				// scaled by lightDensity*finalMultiplier and the sample's max
+				// channel is the normalizer BOTH the sun colour and the
+				// hemisphere ambient are divided by - feeding the light's
+				// exposure knob in here would scale the whole driven ambient
+				// by a number the other flavor never applies.
 				const float sunDisk = std::pow(lDotV,
-					lerp(4.0f, 8500.0f, sunHeight) * 0.25f) * sunDiskPower;
+					lerp(4.0f, 8500.0f, sunHeight) * 0.25f) * kSkySunDiskPower;
 				const float antiMie = std::max(sunHeightWeight, 0.08f);
 				const V3 skyAbsorption =
 					skyRayleighAbsorption(skyColour, ptDensity);
@@ -322,19 +321,22 @@ namespace Orkige
 			AtmosphereDesc faded = desc;
 			faded.skyPower = desc.skyPower * duskFade;
 
-			// the sun colour: the sky model sampled toward the sun,
-			// normalized so the max channel is 1 (the power knob carries the
-			// magnitude) - identical to the native linkage, which scales the
-			// sun disk by the sun power (@see atmosphereAt sunDiskPower)
-			V3 sunColour = atmosphereAt(faded, toSun, sunHeight, toSun, false,
-				desc.sunPower);
+			// the sun colour: the sky model sampled toward the sun WITH its
+			// disk, normalized so the max channel is 1 (the power knob carries
+			// the magnitude) - the native linkage's own first two lines, which
+			// sample at the model's preset sun power and divide by that
+			// sample's max channel.
+			V3 sunColour = atmosphereAt(faded, toSun, sunHeight, toSun, false);
 			const float maxPower = std::max(
 				{ sunColour.x, sunColour.y, sunColour.z, 1e-6f });
 			sunColour = mul(sunColour, 1.0f / maxPower);
 
 			// the hemisphere fill: the sky sampled up / near the horizon,
-			// proportioned to the sun via maxPower (native convention), then
-			// scaled by the desc's ambientPower exposure knob
+			// proportioned to the sun via THE SAME maxPower (native
+			// convention), then scaled by the desc's ambientPower exposure
+			// knob. maxPower is therefore shared state between the sun hue and
+			// the ambient MAGNITUDE - anything folded into the sample above
+			// rescales the whole driven fill.
 			const V3 upProbe = { 0.0f, 1.0f, 0.0f };
 			const V3 horizonProbe = normalize({ 1.0f, 0.1f, 0.0f });
 			const float upperPower =

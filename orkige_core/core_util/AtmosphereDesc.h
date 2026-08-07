@@ -127,8 +127,10 @@ namespace Orkige
 	//!    is a gentle depth haze at tens of units, ~0.01 buries mid-distance
 	//!    geometry. This is object fog, INDEPENDENT of @c density (which is the
 	//!    sky dome only); do not confuse the two.
-	//!  - @c sunPower : drives the linked directional light's power (NprSky
-	//!    linkedLightPower). The pipeline has NO tonemapper, so this is the
+	//!  - @c sunPower : drives the linked directional LIGHT's power (NprSky
+	//!    linkedLightPower) and nothing else - not the sky model's own sun
+	//!    disk, and so not the driven ambient fill, which is normalized by a
+	//!    sample of that model. The pipeline has NO tonemapper, so this is the
 	//!    exposure knob for lit surfaces: at the native default (Math::PI) a
 	//!    mid-albedo surface under the zenith sun clips to white. The neutral
 	//!    default here lands a mid-grey surface in a believable mid-range with

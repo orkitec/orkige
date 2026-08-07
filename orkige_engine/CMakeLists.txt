@@ -343,6 +343,7 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         engine_render_classic/ClassicBackend.h
         engine_render_classic/ClassicBackend.cpp
         engine_render_classic/AtmosphereFogSrs.cpp
+        engine_render_classic/DecalComposeSrs.cpp
         engine_render_classic/HemisphereAmbientSrs.cpp
         engine_render_classic/ImageLightingSrs.cpp
         engine_render_classic/MetalRoughLightingSrs.cpp

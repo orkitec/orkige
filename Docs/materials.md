@@ -701,7 +701,28 @@ headless-tested `DecalComponent::fadeFactor`.
   tolerance, not true projected decals — no deferred/projective system is built
   for classic by design).
 
-A per-flavor LOOK, not a pixel-parity case.
+The SHAPE is a per-flavor look — a projection box against a flat quad. The
+STRENGTH is not: one authored coverage darkens a surface by the same amount on
+both flavors, and that holds because the two mechanisms compose in different
+spaces and the classic one crosses back.
+
+**The coverage transfer.** Next lerps the SURFACE's albedo toward the decal's
+before shading, so a mark of coverage `a` leaves `1 - a` of the surface's
+LINEAR light and the one display transfer encodes the result. The classic quad
+blends over a framebuffer that is ALREADY display-encoded, so the same `a`
+would leave `1 - a` of the DISPLAY value — a much darker, wider-reading mark
+(at the shipped blob's 0.75 core coverage: 0.25 against 0.50). The engine-wide
+display transfer is `sqrt`, so the display image of the linear survival is
+`sqrt(1 - a)` and the alpha that leaves exactly that much is
+
+```
+a' = 1 - sqrt(1 - a)
+```
+
+which the `OrkigeDecalCompose` sub-render-state
+(`engine_render_classic/DecalComposeSrs.h`) computes per fragment on the
+composed alpha (texture alpha × the quad's vertex alpha) after texturing and
+before the blend. It is the transfer's own inverse, not a tuned curve.
 
 **Opacity / fade delta:** `setOpacity` dims the classic aligned quad's alpha
 smoothly (per-vertex). The native projected decal has NO per-decal alpha uniform,
@@ -754,6 +775,11 @@ like the water/font dirs by the player/editor and bundled to exports under
 decal visibly marks a lit surface, that opacity fades the mark back to baseline,
 that the budget hides the oldest past the cap, and that a cap of 0 renders the
 surface as if there were no decals (baseline 0.341 → dark-blob mark 0.175 →
-faded/budgeted-off back to 0.341 on next). `DecalComponent`'s reflected schema, a
+faded/budgeted-off back to 0.341). It also gates HOW MUCH the mark takes, against
+the derived number rather than the other flavor: the blob's authored coverage
+peaks at 0.75, so the probed pixel reads `sqrt(1 - 0.75)` = half the baseline on
+both flavors. The cross-flavor picture is the feature sweep's
+`selfcheck_decal_mark` corridor, whose `core` band scores the blob's peak on its
+own. `DecalComponent`'s reflected schema, a
 detached property round-trip, and the pure `fadeFactor` lifetime/fade curve are
 unit-tested in `DecalComponentTests`.

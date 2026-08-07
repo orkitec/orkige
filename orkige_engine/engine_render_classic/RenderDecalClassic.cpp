@@ -17,6 +17,7 @@
 //! cap.
 
 #include "engine_render_classic/ClassicBackend.h"
+#include "engine_render_classic/DecalComposeSrs.h"
 #include <core_debug/DebugMacros.h>
 
 #include <algorithm>
@@ -150,6 +151,39 @@ namespace Orkige
 			Ogre::TextureUnitState::TAM_CLAMP);
 		textureUnit->setTextureFiltering(Ogre::FO_LINEAR, Ogre::FO_LINEAR,
 			Ogre::FO_NONE);
+#ifdef USE_RTSHADER_SYSTEM
+		// THE COMPOSE SPACE, not a look tweak: this quad blends over a
+		// DISPLAY-ENCODED framebuffer while the other backend's projected decal
+		// lerps the surface's LINEAR albedo before the encode, so one authored
+		// coverage removes a different amount of light on each. The
+		// decal-coverage stage converts one into the other in closed form
+		// (@see DecalComposeSrs.h). It rides a generated technique carrying the
+		// fixed-function equivalents this unlit quad actually uses - transform,
+		// vertex colour, texturing - and nothing else: the mark is neither lit
+		// nor fogged on either flavor.
+		if(Ogre::RTShader::ShaderGenerator* generator =
+			Ogre::RTShader::ShaderGenerator::getSingletonPtr())
+		{
+			const Ogre::String scheme =
+				Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME;
+			const Ogre::String & group = material->getGroup();
+			// the generator clones from the material's SUPPORTED techniques,
+			// which only exist once the material has compiled
+			material->load();
+			if(generator->createShaderBasedTechnique(*material,
+				Ogre::MaterialManager::DEFAULT_SCHEME_NAME, scheme))
+			{
+				Ogre::RTShader::RenderState* renderState =
+					generator->getRenderState(scheme, materialName, group, 0);
+				renderState->addTemplateSubRenderStates(
+					{ Ogre::RTShader::SRS_TRANSFORM,
+					  Ogre::RTShader::SRS_VERTEX_COLOUR,
+					  Ogre::RTShader::SRS_TEXTURING });
+				addDecalComposeSubRenderState(generator, renderState);
+				generator->invalidateMaterial(scheme, materialName, group);
+			}
+		}
+#endif // USE_RTSHADER_SYSTEM
 		return materialName;
 	}
 	//---------------------------------------------------------

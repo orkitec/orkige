@@ -95,6 +95,38 @@ TEST_CASE("AtmosphereSunDrive: the power knobs pass through monotonically",
 		Catch::Approx(lowFill.nextUpperGreen * 4.0f).epsilon(1e-3f));
 }
 
+TEST_CASE("AtmosphereSunDrive: the sun exposure knob never moves the fill",
+	"[atmosphere][sundrive]")
+{
+	// sunPower is the LINKED LIGHT's power scale, applied to the light. The
+	// sky model carries its own sun disk at the preset strength both flavors
+	// leave alone, and BOTH the driven sun hue and the driven hemisphere are
+	// normalized by the max channel of one sample of that model - so folding
+	// the light's exposure knob into the sample would rescale the whole
+	// ambient fill by a number the other flavor never applies. That the fill
+	// is INDEPENDENT of sunPower is the property, and it is what makes the
+	// two flavors' driven hemispheres agree digit for digit.
+	AtmosphereDesc desc = AtmospherePreset::forSky(AtmospherePreset::SKY_DAY);
+	desc.sunPower = 0.35f;
+	const Drive dim = AtmosphereSunDrive::compute(desc, 0.0f, 0.76f, 0.65f);
+	desc.sunPower = 4.0f;
+	const Drive bright = AtmosphereSunDrive::compute(desc, 0.0f, 0.76f, 0.65f);
+
+	CHECK(bright.nextUpperRed == Catch::Approx(dim.nextUpperRed));
+	CHECK(bright.nextUpperGreen == Catch::Approx(dim.nextUpperGreen));
+	CHECK(bright.nextUpperBlue == Catch::Approx(dim.nextUpperBlue));
+	CHECK(bright.nextLowerRed == Catch::Approx(dim.nextLowerRed));
+	CHECK(bright.nextLowerGreen == Catch::Approx(dim.nextLowerGreen));
+	CHECK(bright.nextLowerBlue == Catch::Approx(dim.nextLowerBlue));
+	// the normalized sun HUE is the same sample, so it holds too - only the
+	// power the light is driven at changes
+	CHECK(bright.sunRed == Catch::Approx(dim.sunRed));
+	CHECK(bright.sunGreen == Catch::Approx(dim.sunGreen));
+	CHECK(bright.sunBlue == Catch::Approx(dim.sunBlue));
+	CHECK(bright.classicSunScale > dim.classicSunScale);
+	CHECK(bright.nextSunPower > dim.nextSunPower);
+}
+
 TEST_CASE("AtmosphereSunDrive: day fills brighter than night",
 	"[atmosphere][sundrive]")
 {
