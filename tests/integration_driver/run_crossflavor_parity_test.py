@@ -70,8 +70,8 @@ from run_benchmark_pixel_test import decode_png, pixel  # noqa: E402
 #: Max channel delta measured on the DEVELOPER pair (Metal against desktop GL):
 #:
 #:   lake        sky 0      terrain 2      water 6
-#:   mirrorlake  sky 0      shore 3        watermirror 7 left, 8 right
-#:               rockmirror 13             water_open 35
+#:   mirrorlake  sky 0      shore 3        watermirror 5 left, 5 right
+#:               rockmirror 7              water_open 25
 #:   lumens      sky 0.0    terrain 0.2    pools 0.1   foreground 0.2
 #:               (at the pinned equal lamp count - see the profile)
 #:
@@ -103,23 +103,25 @@ from run_benchmark_pixel_test import decode_png, pixel  # noqa: E402
 #: regression was 2.4x:
 #:
 #:   lake        water           sd 0.88 / grad 0.83
-#:   mirrorlake  watermirror_l   sd 1.65 / grad 1.52
-#:               watermirror_r   sd 1.62 / grad 1.35
-#:               rockmirror      sd 0.43 / grad 0.44
-#:               water_open      sd 5.95 / grad 1.19
+#:   mirrorlake  watermirror_l   sd 1.92 / grad 1.74
+#:               watermirror_r   sd 1.90 / grad 1.54
+#:               rockmirror      sd 0.42 / grad 0.42
+#:               water_open      sd 5.06 / grad 1.04
 #:
 #: The CI pair is a different software rasterizer on each side and measures
 #: its own numbers; a floor that has to move moves with the measurement
 #: written beside it, never by loosening until a run passes.
 #:
 #: FLOOR ONLY, deliberately. Classic is the REFERENCE here - the reading of
-#: what the scene contains - and the two places its own structure is
-#: unreliable are documented open seams (the screen-UV mirror stretch and the
-#: unlit mirror body). A ceiling would fire on those seams, and it would fire
-#: again when either is FIXED and classic gains structure. The failure it
-#: would otherwise catch, classic's own water going flat, is gated where it
-#: belongs: per-flavor, by water_mirror_wobble, which floors classic's
-#: between-phase change on its own.
+#: what the scene contains - and the one place its own structure is unreliable
+#: is a documented open seam: the classic mirror's screen-UV paint samples the
+#: mirror target at the fragment's own screen position, which stretches the
+#: mirrored image against the other flavor's true projective mapping, so the
+#: two sides carry DIFFERENT mirror content wherever the mirror dominates. A
+#: ceiling would fire on that seam, and it would fire again when the seam is
+#: FIXED and classic gains structure. The failure it would otherwise catch,
+#: classic's own water going flat, is gated where it belongs: per-flavor, by
+#: water_mirror_wobble, which floors classic's between-phase change on its own.
 #:
 #: A profile may also carry `env`: extra environment a capture of THAT scene
 #: boots under, applied on both roads (the run-both developer road and the
@@ -162,27 +164,30 @@ PROFILES = {
         "streak": True,
     },
     # the planar-mirror sibling: a low, close camera over a calm surface, the
-    # widened shore ridge spanning the far edge, waterline rocks. The tight
-    # gates are where BOTH flavors mirror the SAME content: the waterline
-    # strips (the mirrored ridge, measured delta 7-8) and the rock-mirror
-    # band. That band sits in the streak column, and with BOTH flavors
-    # carrying the sun glint it measures 13 on the developer pair - moving
-    # the box off the streak is worse, because the open water flanking it
-    # carries the raw body-brightness seam (classic's unlit painted body
-    # against the default backend's lit surface, the named open item). The
-    # corridor clears the CI pair's own spread over that measurement and
-    # still breaches on a mirror-strength drift, which the 3x-strong
-    # calibration measured at 35 WITHOUT the streak and only rises with it.
-    # The open lower water mirrors the MID/HIGH sky, where two documented
-    # approximations diverge: the flavors' sky-dome colour away from the
-    # horizon (a seam nothing but a mirror ever sees - the direct sky bands
-    # match at delta 0) and the classic mirror's screen-UV paint, which
-    # stretches the mirrored ridge further down than the default backend's
-    # true projective mapping. On top of those, classic's mirror program
-    # paints an UNLIT body while the default backend's is a lit surface, so
-    # this band stays the widest corridor on either scene: measured 35
-    # against 69 under the 3x-strong calibration, so the corridor still
-    # bites on strength drift and re-tightens when the body seam closes.
+    # widened shore ridge spanning the far edge, waterline rocks. Both
+    # flavors compose the SAME surface here - one lit body, one fresnel, one
+    # transmitted share, one mirror weight - so the tight gates are the ones
+    # the mirror does not dominate: the waterline strips (the mirrored ridge,
+    # measured delta 5 either side) and the rock-mirror band, which sits in
+    # the streak column and measures 7 with both flavors carrying the sun
+    # glint.
+    #
+    # The open lower water is the band the MIRROR dominates, and it is the
+    # widest corridor on either scene for exactly that reason: two documented
+    # approximations decide what the mirror SHOWS there. The classic mirror's
+    # screen-UV paint samples its mirror target at the fragment's own screen
+    # position, so a near, steeply-down-looking fragment reads the horizon
+    # band the other flavor's true projective mapping replaces with the sky
+    # overhead; and the flavors' sky-dome colour away from the horizon
+    # differs (a seam nothing but a mirror ever sees - the direct sky bands
+    # match at delta 0). Booting the same pair with the mirror off
+    # (r.planarReflection=0), which drops both surfaces onto the shared
+    # refractive program, measures this band at 7/8/3 - so the body, the
+    # lighting, the transmitted share and the fresnel agree, and the 25 below
+    # is the mirror content alone. Its blue channel carries most of it (13/19/
+    # 25), which is the signature of a sky-versus-horizon disagreement rather
+    # than a strength one; a mirror-strength drift measured 69 under the
+    # 3x-strong calibration, so the corridor still bites on that.
     # The streak contract HOLDS
     # here: the glint is a DIRECT sun specular on both flavors (classic's
     # analytic Blinn term, next's GGX lobe at the shared water roughness),
@@ -195,14 +200,20 @@ PROFILES = {
             # shore 3 against the 6-8 strip record; corridors at ~2x the worst
             "sky": (0.30, 0.02, 0.95, 0.08, 16.0),
             "shore": (0.15, 0.12, 0.85, 0.22, 16.0),
-            # the mirrored-ridge strips: 7 left, 8 right
+            # the mirrored-ridge strips: 5 left, 5 right. The corridors stay
+            # where they were - a 2-point move is inside the spread the CI
+            # pair's own rasterizers carry, and these two strips are the
+            # tightest gates in the file
             "watermirror_l": (0.08, 0.25, 0.40, 0.28, 15.0),
             "watermirror_r": (0.60, 0.25, 0.92, 0.28, 18.0),
-            # measures 12 with both flavors transmitting the refracted scene
-            # at true linear radiance and at the authored share
-            "rockmirror": (0.38, 0.38, 0.52, 0.50, 28.0),
-            # measures 34; the body seam keeps it the widest corridor here
-            "water_open": (0.05, 0.36, 0.35, 0.52, 50.0),
+            # measures 7 with both flavors composing one lit surface (12 while
+            # the classic mirror branch painted an unlit body); corridor at
+            # the same ~2.4x margin the 12 carried
+            "rockmirror": (0.38, 0.38, 0.52, 0.50, 18.0),
+            # measures 25 - the mirror-content seam alone (7/8/3 with the
+            # mirror off), where the unlit body left 35; corridor at the same
+            # ~1.4x margin the 35 carried
+            "water_open": (0.05, 0.36, 0.35, 0.52, 36.0),
         },
         "structure": {
             # the mirrored ridge, the sharpest transmitted detail either
@@ -216,13 +227,16 @@ PROFILES = {
             # several times next's), so its floors are set a little tighter
             # in relative terms - 0.60x rather than 0.55x
             "rockmirror": (0.26, 0.26),
-            # VANISH-ONLY floors, and the exception that proves the rule: the
-            # reference side of this band is classic's unlit mirror body, the
-            # named open seam, so its structure is not a stable denominator
-            # (measured sd 5.95 / grad 1.19, a ratio that says more about
-            # classic than about next and that FALLS when the seam closes).
-            # These two catch a transmitted image going away entirely and
-            # deliberately nothing finer
+            # VANISH-ONLY floors, and the exception that proves the rule:
+            # this is the band the MIRROR dominates, so what each side's
+            # structure reads is what its own mirror shows there - classic's
+            # screen-UV paint stretches a smooth horizon band across it while
+            # the projective mapping puts sharp mirrored rock in the same
+            # place. The ratio therefore says more about the two mappings
+            # than about either surface (measured sd 5.06 / grad 1.04), and
+            # it is not a stable denominator until that approximation is
+            # closed. These two catch a transmitted image going away entirely
+            # and deliberately nothing finer
             "water_open": (0.50, 0.50),
         },
         "streak": True,

@@ -907,10 +907,9 @@ namespace Orkige
 			(1u << static_cast<int>(RenderCaps::ScreenSpaceRefraction)) |
 			// PlanarReflection: the native Ogre::PlanarReflections subsystem
 			// renders the mirror RTT with its mip chain (the hand-built
-			// workspace's PASS_MIPMAP), and the planar-on water material
-			// compensates HlmsPbs's physically-attenuated env term (specular
-			// colour x env BRDF x roughness-mip blur) so the mirrored scene
-			// reads at the classic mirror-paint's strength - probe-verified by
+			// workspace's PASS_MIPMAP), and the planar-on water material sets
+			// the env term's one angle-independent dial (the datablock specular)
+			// to the shared mirror kS both flavors evaluate - probe-verified by
 			// water_reflection_looks_right on this flavor. Diagnose with
 			// ORKIGE_DUMP_MIRROR=<png> (@see updatePlanarReflections).
 			(1u << static_cast<int>(RenderCaps::PlanarReflection)) |
@@ -4327,58 +4326,49 @@ namespace Orkige
 			const float mirrorF0 = std::clamp(f0 + strength * 0.12f, 0.02f, 0.3f);
 			datablock->setFresnel(
 				Ogre::Vector3(mirrorF0, mirrorF0, mirrorF0), false);
-			// COMPOSITION-ORDER parity with the classic mirror paint: classic
-			// composes its mirror in DISPLAY space - out = mix(base, mirror, F)
-			// after its sqrt display transfer - while HlmsPbs ADDS the env term
-			// in LINEAR light before the same transfer. Both flavors ride the
-			// SAME Schlick F (classic pushes F0 * opacity explicitly; HlmsPbs
-			// premultiplies its fresnel by the transparency value), and the env
-			// term here is kS * (F * envBRDF.x + envBRDF.y) * mirror
-			// (envBRDF.x ~ 1 at this near-zero roughness), so kS is the one
-			// angle-independent dial on the mirror's weight. Classic's
-			// display-mix weight F is the target; kS sits where the water
-			// reflection probe MEASURES the two flavors' mirrors equal:
-			// probe-measured on_magenta over kS = 0.009 @ 0.151,
-			// 0.017 @ 0.355, 0.020 @ 0.41, 0.022 @ 0.43, 0.032 @ 0.5,
-			// 0.062 @ 1.0 (the response bends because the probe's per-sample
-			// hue clamp gates how much of the band counts) - 0.43 lands next
-			// at classic's measured 0.022 exactly. The former UNIT specular
-			// was tuned against the pre-opacity-scaled classic mirror and
-			// measured 3x strong once classic's fresnel took its opacity
-			// scale. Constant-kS keeps the authored strength/opacity response
-			// in lockstep: both flavors' mirror weights stay proportional to
-			// the same premultiplied F.
+			// the MIRROR's weight. Both flavors evaluate the same env specular
+			// term - envColourS x specular x fresnelS, where envBRDF is
+			// (1, 0, 1) at this near-zero roughness, so the compose reduces to
+			// mirror x kS x F - and both add it in LINEAR light before the one
+			// sqrt display transfer, so kS is the single angle-independent dial
+			// on the mirror and it means the same thing on either side. The
+			// value comes from the water reflection probe's response curve -
+			// on_magenta over kS = 0.009 @ 0.151, 0.017 @ 0.355, 0.020 @ 0.41,
+			// 0.022 @ 0.43, 0.032 @ 0.5, 0.062 @ 1.0 (the response bends
+			// because the probe's per-sample hue clamp gates how much of the
+			// band counts) - and it is a LOOK choice about how much mirror the
+			// surface carries, not a per-flavor calibration: the sibling backend
+			// reads the same constant (@see RenderSystemClassic
+			// kWaterMirrorSpecular) into the same term. Constant-kS keeps the
+			// authored strength/opacity response in lockstep: both mirror
+			// weights stay proportional to the same premultiplied F.
 			const float kMirrorSpecular = 0.43f;
 			datablock->setSpecular(Ogre::Vector3(
 				kMirrorSpecular, kMirrorSpecular, kMirrorSpecular));
-			// the body under the mirror: classic's base carries the display
-			// weight (1 - 0.35 * strength) * (1 - F) - the lockstep body dim
-			// times the mix's own (1-F) attenuation. The body IS the dominant
-			// term where the mirror is weak (the down-look), so there the sqrt
-			// transfer maps a linear factor to its square root on screen -
-			// next dims its LINEAR albedo (and the scatter emissive riding in
-			// that base) by the SQUARE of classic's display weight, evaluated
-			// at the view-independent mean fresnel Fmean = F0eff +
-			// (1 - F0eff)/21 (the cosine-weighted hemisphere mean of Schlick:
-			// the (1-cos)^5 lobe integrates to 1/21). The mirrored scene, not
-			// the body glow, carries the surface; the fresnel gate still keeps
-			// the look water, not chrome.
-			// the refracted share stays the AUTHORED one, exactly as the
-			// non-mirror branch above sets it. HlmsPbs adds the captured scene
-			// at (1 - opacity) into the LINEAR accumulator and display-encodes
-			// once, so the transmitted scene reaches the screen at
-			// sqrt(1 - opacity) - 0.55 at the mirror scene's 0.7 - against the
-			// (1 - opacity * 0.6) = 0.58 classic's mirror paint carries in
-			// DISPLAY space (mix(scene, deep, opacity * 0.6) - @see
-			// RenderSystemClassic WaterReflect_fs). The two composes agree at
-			// the authored value; a share dimmed below it leaves a body with no
-			// lakebed under it - the mirror scene's refracted shadow bands
-			// measure a 1.2-1.4 level darkening against the open body beside
-			// them at the authored share and NONE (-0.5 to -1.1, the bands
-			// read brighter than the body) at a 0.3 one, where classic's read
-			// 5.3-6.7. HlmsPbs premultiplies its fresnel by this
-			// alpha, which is what classic does explicitly (f0 * opacity), so
-			// the effective F0 below reads the SAME value on both flavors.
+			// the body under the mirror. Real water is reflection-forward - its
+			// own albedo is tiny and the authored deep colour is an artistic
+			// stand-in - so a stronger mirror dims the body (1 - 0.35 x
+			// strength) and the surface's grazing split takes the rest, at the
+			// view-independent mean fresnel Fmean = F0eff + (1 - F0eff)/21 (the
+			// cosine-weighted hemisphere mean of Schlick: the (1-cos)^5 lobe
+			// integrates to 1/21). The weight is a DISPLAY-space one while the
+			// albedo it scales is LINEAR and the display transfer is sqrt, so it
+			// enters squared. The mirrored scene, not the body glow, carries the
+			// surface; the fresnel gate still keeps the look water, not chrome.
+			// The sibling backend derives the SAME number and pushes it to its
+			// mirror program as one albedo scale (@see RenderSystemClassic
+			// waterMirrorAlbedoScale), so the two flavors describe one surface.
+			// The refracted share stays the AUTHORED one, exactly as the
+			// non-mirror branch above sets it: the captured scene enters the
+			// LINEAR accumulator at (1 - opacity) and the whole body
+			// display-encodes once, on both flavors. A share dimmed below the
+			// authored value leaves a body with no lakebed under it - the mirror
+			// scene's refracted shadow bands measure a 1.2-1.4 level darkening
+			// against the open body beside them at the authored share and NONE
+			// (-0.5 to -1.1, the bands read brighter than the body) at a 0.3
+			// one. HlmsPbs premultiplies its fresnel by this alpha, which the
+			// sibling does explicitly (f0 * opacity), so the effective F0 below
+			// reads the SAME value on both flavors.
 			const float alphaEff = std::clamp(desc.opacity, 0.0f, 1.0f);
 			datablock->setTransparency(alphaEff, useRefraction
 				? Ogre::HlmsPbsDatablock::Refractive
@@ -4386,9 +4376,9 @@ namespace Orkige
 			const float effectiveF0 = mirrorF0 * alphaEff;
 			const float meanFresnel =
 				effectiveF0 + (1.0f - effectiveF0) / 21.0f;
-			const float classicBodyWeight =
+			const float bodyWeight =
 				(1.0f - strength * 0.35f) * (1.0f - meanFresnel);
-			const float albedoScale = classicBodyWeight * classicBodyWeight;
+			const float albedoScale = bodyWeight * bodyWeight;
 			datablock->setDiffuse(Ogre::Vector3(desc.deepColour.r * albedoScale,
 				desc.deepColour.g * albedoScale,
 				desc.deepColour.b * albedoScale));
@@ -4523,10 +4513,9 @@ namespace Orkige
 			// the mirrored surface's ambient stage, with the SPECULAR sky
 			// fill suppressed: upstream's DoAmbientLighting adds the
 			// hemisphere ambient onto envColourS AFTER the planar piece put
-			// the mirror there - the sky is then counted twice on the water
-			// (once inside the mirrored scene, once as the fill), which is a
-			// large part of why this surface reads brighter than the classic
-			// program, whose reflect path has no such fill. The body's
+			// the mirror there - the sky would then be counted twice on the
+			// water, once inside the mirrored scene and once as the fill,
+			// which the sibling program's env term does not do. The body's
 			// DIFFUSE ambient stays - the surface is still lit - and every
 			// other branch reproduces the library piece verbatim, so this
 			// must track that piece across a pin bump. Scoped to the

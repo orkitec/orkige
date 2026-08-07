@@ -142,14 +142,16 @@ def main():
     # both flavors, the no-mirror teal water ~0.00x. The ON-minus-OFF magenta
     # delta guards against a base tint accidentally scoring; the luminance
     # delta proves the mirror renders at all.
-    # the absolute floor sits just below the flavors' measured healthy value,
-    # which is now EQUAL by calibration: 0.022 on both (classic formula-true -
-    # its water fresnel scales by authored opacity exactly like the sibling's
-    # transparency upload - and the next planar block's mirror specular is
-    # probe-calibrated to that classic strength; the derivation lives at the
-    # kMirrorSpecular constant in NextBackend.cpp). The floor keeps ~30%
-    # headroom over deterministic frame-locked captures; a mirror that stops
-    # showing the scene reads ~0.001, which the DELTA guard also catches.
+    # the absolute floor sits below the healthy value BOTH flavors measure -
+    # 0.019 classic, 0.032 next on the developer pair. The two now evaluate
+    # the SAME mirror term (mirror x kS x roughness-aware Schlick F, added in
+    # linear light before one display transfer), so what is left between them
+    # is what each one's mirror SHOWS on this demo, not two calibrations; the
+    # shared kS lives at kMirrorSpecular in NextBackend.cpp and
+    # kWaterMirrorSpecular in RenderSystemClassic.cpp. The floor keeps ~20%
+    # headroom over the lower of the two on deterministic frame-locked
+    # captures; a mirror that stops showing the scene reads ~0.001, which the
+    # DELTA guard also catches.
     MIN_ON_MAGENTA = 0.015      # the marker's mirror measurably tints the band
     # the ON band must exceed the OFF baseline by an absolute magenta margin
     # (not a ratio): software rasterizers carry a brighter OFF baseline
@@ -160,11 +162,12 @@ def main():
     # without judging the rasterizer's base-tint level.
     MIN_MAGENTA_DELTA = 0.010
     # the mirror renders (band differs from baseline). The magenta assertions
-    # above carry the real proof; this residual luminance guard sits below the
-    # measured classic 7.3 / next 15.5 (each flavor's ON is compared against
-    # its OWN sky-reflection OFF baseline, and those baselines differ - next's
-    # OFF carries the brighter IBL sky mirror - so the deltas legitimately
-    # differ while the hue signal stays matched at 0.022 / ratio ~22x).
+    # above carry the real proof; this residual luminance guard sits well
+    # below the measured classic 21.9 / next 25.6 (each flavor's ON is
+    # compared against its OWN sky-reflection OFF baseline, and those
+    # baselines differ - next's OFF carries the brighter IBL sky mirror - so
+    # the deltas legitimately differ while both hue signals sit 19-32x over
+    # their own OFF baseline).
     MIN_LUM_DIFF = 3.0
 
     print(f"reflection probe: on_magenta={on_mag:.3f} (>{MIN_ON_MAGENTA}), "

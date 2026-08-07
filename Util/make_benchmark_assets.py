@@ -891,20 +891,30 @@ def build_mirrorlake():
           s.transform(0.0, "-4.8", -56.0, 2.6, 1.2, 1.0, static=True),
           s.model("demo_terrain.glb", "demo_terrain.omat"),
           tags=("terrain",))
-    # the mirror surface: the lake's readable body preset with a calm swell
-    # (0.08 - mirrors read best near-flat) and BOTH screen-space passes on;
-    # the flavors compose refraction under the mirror on their shared
-    # formulas. Opacity a touch above the lake's 0.55: the effective mirror
-    # fresnel scales by authored opacity on both flavors, and the mirror -
-    # not the lakebed - is this scene's star.
+    # the mirror surface: a calm swell (0.08 - mirrors read best near-flat)
+    # and BOTH screen-space passes on; the flavors compose refraction under
+    # the mirror on their shared formulas.
+    #
+    # The body values are this scene's LOOK, authored against the golden-hour
+    # staging rather than inherited from the lake's daylight preset. The
+    # surface is a lit one on both flavors, so the authored deep/shallow are
+    # an ALBEDO the sun and the hemisphere fill multiply - roughly half the
+    # lake's tints land the same rich, dark, warm body here that the bright
+    # lake preset would wash out, and the lower opacity is what lets the
+    # lakebed read THROUGH the surface: the transmitted share is (1 - opacity)
+    # and the body's own share scales by opacity SQUARED, so opening the
+    # surface up darkens the body and brings the bed texture forward in one
+    # move (measured on the water bands: the near-water band's detrended sd
+    # 2.9 -> 4.9 and its gradient energy 0.09 -> 0.16 against the same frame
+    # at the lake's values, with the band luma down 55.6 -> 49.4).
     s.add("Lake",
           s.transform(0.0, -3.2, -18.0),
           s.water(size_x=90.0, size_z=90.0,
                   wave_height=0.08, screen_space_refraction=True,
                   planar_reflection=True,
-                  deep=(0.04, 0.20, 0.30, 1.0),
-                  shallow=(0.30, 0.47, 0.62, 1.0),
-                  opacity=0.7,
+                  deep=(0.02, 0.11, 0.18, 1.0),
+                  shallow=(0.14, 0.25, 0.35, 1.0),
+                  opacity=0.55,
                   refraction_strength=0.25,
                   normal_tex="water_normal.png"),
           tags=("water",))

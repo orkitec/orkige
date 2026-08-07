@@ -142,8 +142,8 @@ namespace Orkige
 			float waveScale = 6.0f;
 			float refractStrength = 0.02f;
 			float refractEnabled = 0.0f;
-			//! the body-dim scale (reflectParams.z) - @see applyReflectionParams
-			float baseScale = 1.0f;
+			//! the body ALBEDO scale (reflectParams.z) - @see waterMirrorAlbedoScale
+			float albedoScale = 1.0f;
 			//! geometric swell amplitude (waveParams.x - @see RenderWaterDesc)
 			float waveHeight = 0.0f;
 		};
@@ -245,6 +245,13 @@ namespace Orkige
 		float gWaterSkyLod = 0.0f;
 		//! the shared water datablock roughness both flavors' env terms read
 		const float kWaterMirrorRoughness = 0.16f;
+		//! the PLANAR-MIRROR water datablock's specular (kS) - the one
+		//! angle-independent dial on the mirror's weight in the env specular
+		//! term envColourS x specular x fresnelS. The value is the sibling
+		//! backend's kMirrorSpecular, probe-calibrated there against this
+		//! flavor's mirror strength; both flavors now evaluate the SAME term,
+		//! so the constant is shared rather than mirrored by two calibrations.
+		const float kWaterMirrorSpecular = 0.43f;
 		//! which (skybox, tier) pair the chain was built from (skip rebuilds)
 		String gIblChainSource;
 		IblPreset::Quality gIblChainQuality = IblPreset::IQ_OFF;
@@ -1674,11 +1681,15 @@ namespace Orkige
 			pushWaterFogParams(params);
 		}
 		//! the shared water-REFLECTION GLSL programs (GL3Plus), created once. The
-		//! fragment program samples the mirror render target at the fragment's
-		//! ripple-perturbed screen UV and blends it over the base water look by the
-		//! reflection strength; when refraction is ALSO on it composes the two (the
-		//! refracted scene becomes the base the reflection sits over). Authored
-		//! inline (not a material script), confined to this backend.
+		//! fragment program composes the SAME lit surface the refraction program
+		//! above does - the metal-rough stage's sun response plus the hemisphere
+		//! sky fill on the deep-colour body, the scatter emissive, and the
+		//! transmitted scene at the authored opacity, all in LINEAR light with one
+		//! display transfer - and adds the MIRROR as the env specular term:
+		//! the mirror render target sampled at the fragment's ripple-perturbed
+		//! screen UV, weighted by the shared mirror kS and the same roughness-aware
+		//! Schlick fresnel. One lighting model, no bespoke paint. Authored inline
+		//! (not a material script), confined to this backend.
 		void ensureReflectionPrograms()
 		{
 			if(gReflectionProgramsBuilt)
@@ -1704,12 +1715,13 @@ namespace Orkige
 					"uniform vec4 deepColour;\n"       // rgb, a = opacity
 					"uniform vec4 shallowColour;\n"    // rgb
 					"uniform vec4 refractParams;\n"    // x=refractStrength y=waveScale z=scrollX w=scrollY
-					"uniform vec4 reflectParams;\n"    // x=fresnel F0 y=refractEnabled z=bodyDim
+					"uniform vec4 reflectParams;\n"    // x=fresnel F0 y=refractEnabled z=albedoScale w=mirror kS
 					"uniform vec4 camPos;\n"           // world-space camera position
 					"uniform mat4 viewMatrix;\n"       // world -> view (the refract offset is view-space)
 					"uniform vec4 viewportSize;\n"     // (w, h, 1/w, 1/h) - the aspect for the y offset
 					"uniform vec4 sunTowards;\n"       // xyz = toward-the-sun (world), w = specular gate
 					"uniform vec4 sunColour;\n"        // rgb = driven sun colour
+					"uniform vec4 waterAmbient;\n"     // rgb = upper-hemisphere sky fill (linear)
 					"in vec2 vUv;\n"
 					"in vec4 vClip;\n"
 					"in vec3 vWorldPos;\n"
@@ -1726,14 +1738,19 @@ namespace Orkige
 					"    vec3 n1 = texture(normalMap, nuv1).xyz * 2.0 - 1.0;\n"
 					"    vec2 disp = (n0.xy + n1.xy * 0.6);\n"
 					"    vec3 viewDir = normalize(camPos.xyz - vWorldPos);\n"
-					// the base look: the refracted scene when refraction composes,
-					// else the water body tint. The refraction UV offset is the
-					// other backend's applyRefractions math verbatim - the
-					// view-space xy of OGRE_refract, aspect-corrected, attenuated
-					// by the view depth SQUARED (@see the refract program above
-					// for the formula walkthrough; 26.0 = its authored-strength
-					// mapping kNextRefractionStrengthScale, eta = the material F0)
-					"    vec3 base;\n"
+					// the TRANSMITTED scene: the refraction grab sampled through the
+					// surface when refraction composes, else nothing (an opaque
+					// mirror pass has no scene behind it to transmit). The grab is
+					// DISPLAY-space, so it is squared back to linear here - the whole
+					// body below composes in LINEAR and encodes ONCE, the sibling's
+					// order. The refraction UV offset is the other backend's
+					// applyRefractions math verbatim - the view-space xy of
+					// OGRE_refract, aspect-corrected, attenuated by the view depth
+					// SQUARED (@see the refract program above for the formula
+					// walkthrough; 26.0 = its authored-strength mapping
+					// kNextRefractionStrengthScale, eta = the material F0)
+					"    float op = clamp(deepColour.a, 0.0, 1.0);\n"
+					"    vec3 sceneLin = vec3(0.0);\n"
 					"    if(reflectParams.y > 0.5)\n"
 					"    {\n"
 					// z-weighted like the refract FS (the full-tangent-vector
@@ -1755,16 +1772,16 @@ namespace Orkige
 					"            / ((viewDepth + 1.0) * (viewDepth + 1.0)),\n"
 					"            vec2(0.002), vec2(0.998));\n"
 					"        vec3 scene = texture(sceneMap, suv).rgb;\n"
-					"        base = mix(scene, deepColour.rgb, deepColour.a * 0.6)\n"
-					"             + shallowColour.rgb * 0.12;\n"
+					"        sceneLin = scene * scene;\n"
 					"    }\n"
-					"    else\n"
-					"    {\n"
-					"        base = mix(deepColour.rgb, shallowColour.rgb, 0.35);\n"
-					"    }\n"
-					// body-dim: a stronger reflection dims the base so the mirror
-					// stays readable (the next flavor's albedo scale sibling)
-					"    base *= clamp(reflectParams.z, 0.0, 1.0);\n"
+					// the BODY reads off a CALMED normal, not the raw swell: the
+					// sibling's water body diffuse is dominated by the near-flat
+					// plane (its detail normals feed the specular lobe, not the
+					// diffuse response), so its body stays smooth/glassy while the
+					// sun STREAK below keeps the strong ripple normal
+					"    vec3 bodyNrm = normalize(mix(vSwellNormal,\n"
+					"        vec3(0.0, 1.0, 0.0), 0.8));\n"
+					"    float ndl = max(dot(bodyNrm, normalize(sunTowards.xyz)), 0.0);\n"
 					// the mirror image, sampled at the fragment screen UV with a
 					// small ripple perturbation (the reflection camera shares the
 					// main projection, so the same-screen sample aligns the mirror).
@@ -1784,7 +1801,8 @@ namespace Orkige
 					// shows the mirror - the same modulation the next flavor's PBS
 					// applies natively, so the two flavors read alike.
 					// reflectParams.x carries the PRE-COMPUTED F0 (base water F0 +
-					// the reflectionStrength boost - @see applyReflectionParams).
+					// the reflectionStrength boost, times the authored opacity -
+					// @see applyReflectionParams).
 					"    vec3 nrm = normalize(vSwellNormal\n"
 					"        + vec3(disp.x * 0.15, 0.0, disp.y * 0.15));\n"
 					"    vec3 nF = normalize(vec3(\n"
@@ -1792,14 +1810,59 @@ namespace Orkige
 					"        disp.y * 0.15 + vSwellNormal.z * 0.2));\n"
 					"    float cosv = clamp(dot(viewDir, nF), 0.0, 1.0);\n"
 					"    float f0 = clamp(reflectParams.x, 0.0, 1.0);\n"
-					"    float fres = f0 + (1.0 - f0) * pow(1.0 - cosv, 5.0);\n"
-					"    vec3 outc = mix(base, reflectCol, clamp(fres, 0.0, 1.0));\n"
-					// atmospheric object fog: this composition is DISPLAY-space,
-					// the fog blends in LINEAR (the other backend's order) - square
-					// to linear, fog, encode back through the same sqrt transfer
-					"    vec3 outcLin = outc * outc;\n"
-					"    outcLin = orkAtmosphereFog(outcLin, vWorldPos, camPos.xyz);\n"
-					"    outc = sqrt(max(outcLin, vec3(0.0)));\n"
+					// the ROUGHNESS-AWARE Schlick the sibling's env/mirror term
+					// rides (getSpecularFresnelWithRoughness: the grazing F90 is
+					// max(1 - roughness, F0), not 1) at the shared water datablock
+					// roughness 0.16 - the same term the refract program above uses,
+					// so ONE fresnel serves both water programs and both flavors
+					"    float f90 = max(1.0 - 0.16, f0);\n"
+					"    float fres = clamp(f0 + (f90 - f0)\n"
+					"        * pow(1.0 - cosv, 5.0), 0.0, 1.0);\n"
+					// THE LIT BODY, composed in LINEAR exactly where the sibling's
+					// HlmsPbs water composes it - one lighting model, no bespoke
+					// paint. Term for term against createOrUpdateWaterDatablock's
+					// planar branch:
+					//   diffuse body   = deep albedo x (sun NdotL + hemisphere sky
+					//                    fill) x opacity^2 x (1 - F). The albedo is
+					//                    setDiffuse's deep x albedoScale
+					//                    (reflectParams.z); the opacity square is
+					//                    the datablock's kD *= transparency^2 on a
+					//                    Transparent/Refractive upload; (1 - F) is
+					//                    the BRDF's diffuse fresnel (fresnelD =
+					//                    1 - fresnelS).
+					//   scatter        = setEmissive's shallow x 0.18 x albedoScale,
+					//                    OUTSIDE the fresnel split like every
+					//                    emissive.
+					//   transmission   = the captured scene at (1 - opacity), the
+					//                    Refractions piece's weight, outside the
+					//                    split as well.
+					//   mirror         = the env specular term
+					//                    envColourS x specular x fresnelS, where
+					//                    envColourS is the planar sample and
+					//                    specular is the mirror kS this backend
+					//                    receives in reflectParams.w. The classic
+					//                    mirror target is DISPLAY-space (a normal
+					//                    render target), so it squares to linear
+					//                    before it joins the accumulator.
+					// The authored deep/shallow are the sibling's LINEAR albedo and
+					// emissive (setDiffuse/setEmissive take them raw), the driven
+					// sun colour arrives linear, and waterAmbient is already linear.
+					"    vec3 deepLin = deepColour.rgb * reflectParams.z;\n"
+					"    vec3 shallowLin = shallowColour.rgb * reflectParams.z;\n"
+					"    vec3 lightLin = waterAmbient.rgb\n"
+					"        + sunColour.rgb * (ndl * sunTowards.w);\n"
+					"    vec3 finalLin = deepLin * lightLin * (op * op)\n"
+					"                    * (1.0 - fres)\n"
+					"                  + sceneLin * (1.0 - op)\n"
+					"                  + shallowLin * 0.18\n"
+					"                  + reflectCol * reflectCol\n"
+					"                    * (fres * max(reflectParams.w, 0.0));\n"
+					// atmospheric object fog over the composed LINEAR surface,
+					// exactly where the other backend fogs its water datablock
+					// (before the display transfer; the transmitted grab content
+					// was already fogged at its own depth in the grab pass)
+					"    finalLin = orkAtmosphereFog(finalLin, vWorldPos, camPos.xyz);\n"
+					"    vec3 outc = sqrt(max(finalLin, vec3(0.0)));\n"
 					// the sun's specular streak riding the ripples (the signature
 					// low-sun water cue the PBS flavor gets from its glossy lobe):
 					// Blinn half-vector against the ripple-tilted normal, the tight
@@ -1824,6 +1887,47 @@ namespace Orkige
 					Ogre::GpuProgramParameters::ACT_VIEWPORT_SIZE);
 			}
 		}
+		//! the live hemisphere fill push, defined below beside the sky-mirror
+		//! state it reads; the mirror program's create-time push needs it here
+		void pushWaterAmbient(Ogre::GpuProgramParametersSharedPtr const & params);
+		//! @brief the mirror surface's effective fresnel F0 - the ONE derivation
+		//! the program push and the stored knobs share.
+		//! @remarks The physical water F0 (0.02, scaled by fresnelPower like the
+		//! base water look) plus a modest reflectionStrength boost, clamped to a
+		//! plausible band and then scaled by the authored OPACITY: the sibling's
+		//! transparent/refractive const-buffer upload multiplies the fresnel by
+		//! the transparency value on non-metallic workflows (its effective water
+		//! F0 IS authored x opacity), so an opened-up water surface softens its
+		//! fresnel edge identically on both flavors. The same formula the sibling
+		//! datablock's planar branch applies (@see createOrUpdateWaterDatablock).
+		float waterMirrorFresnelF0(RenderWaterDesc const & desc)
+		{
+			const float baseF0 = std::clamp(
+				0.02f * std::max(desc.fresnelPower, 0.0f), 0.0f, 0.2f);
+			const float strength = std::clamp(desc.reflectionStrength, 0.0f, 1.0f);
+			return std::clamp(baseF0 + strength * 0.12f, 0.02f, 0.3f) *
+				std::clamp(desc.opacity, 0.0f, 1.0f);
+		}
+		//! @brief the mirror surface's body ALBEDO scale - the exact number the
+		//! sibling datablock carries in its diffuse and emissive.
+		//! @remarks Real water is reflection-forward: its own albedo is tiny and
+		//! the authored deep colour is an artistic stand-in, so a stronger mirror
+		//! dims the body (1 - 0.35 x strength) and the surface's own grazing split
+		//! takes the rest, at the view-independent MEAN fresnel Fmean = F0 +
+		//! (1 - F0)/21 (the cosine-weighted hemisphere mean of Schlick: the
+		//! (1 - cos)^5 lobe integrates to 1/21). Squared because the weight is a
+		//! DISPLAY-space one while the albedo it scales is LINEAR, and the display
+		//! transfer is sqrt. Both flavors read this same number - the sibling bakes
+		//! it into setDiffuse/setEmissive, this backend pushes it as
+		//! reflectParams.z - so the two bodies are the same surface.
+		float waterMirrorAlbedoScale(RenderWaterDesc const & desc)
+		{
+			const float strength = std::clamp(desc.reflectionStrength, 0.0f, 1.0f);
+			const float f0 = waterMirrorFresnelF0(desc);
+			const float meanFresnel = f0 + (1.0f - f0) / 21.0f;
+			const float bodyWeight = (1.0f - strength * 0.35f) * (1.0f - meanFresnel);
+			return bodyWeight * bodyWeight;
+		}
 		//! push the water body colour + refraction/reflection knobs onto a
 		//! reflective water material's fragment program (create + per-scroll update)
 		void applyReflectionParams(Ogre::Pass* pass, RenderWaterDesc const & desc,
@@ -1841,27 +1945,17 @@ namespace Orkige
 			params->setNamedConstant("refractParams", Ogre::Vector4(
 				std::max(desc.refractionStrength, 0.0f),
 				std::max(desc.waveScale, 0.001f), scrollX, scrollY));
-			// reflectParams.x = the fresnel F0 the program's Schlick term rides:
-			// the physical water F0 (0.02, scaled by fresnelPower like the base
-			// water look) plus a modest reflectionStrength boost. reflectParams.z
-			// = the BODY-dim scale (a higher strength dims the base so the
-			// mirrored scene stays readable over a bright body). BOTH are the
-			// SAME formulas the next flavor applies to its PBS fresnel/albedo,
-			// so the two flavors' reflection reads alike
-			// (@see createOrUpdateWaterDatablock). The clamped F0 then scales by
-			// the authored OPACITY: the sibling's transparent/refractive const-
-			// buffer upload multiplies the fresnel by the transparency value on
-			// non-metallic workflows (its effective water F0 IS authored x
-			// opacity), so an opened-up water surface softens its fresnel edge
-			// identically on both flavors.
-			const float baseF0 = std::clamp(
-				0.02f * std::max(desc.fresnelPower, 0.0f), 0.0f, 0.2f);
-			const float strength = std::clamp(desc.reflectionStrength, 0.0f, 1.0f);
-			const float f0 = std::clamp(baseF0 + strength * 0.12f, 0.02f, 0.3f) *
-				std::clamp(desc.opacity, 0.0f, 1.0f);
-			const float baseScale = 1.0f - strength * 0.35f;
+			// x = the effective fresnel F0, z = the body albedo scale, w = the
+			// mirror's kS - the three material numbers the sibling datablock
+			// carries, derived by the shared helpers above so the two flavors
+			// describe ONE surface (@see createOrUpdateWaterDatablock).
 			params->setNamedConstant("reflectParams", Ogre::Vector4(
-				f0, refractComposed ? 1.0f : 0.0f, baseScale, 0.0f));
+				waterMirrorFresnelF0(desc), refractComposed ? 1.0f : 0.0f,
+				waterMirrorAlbedoScale(desc), kWaterMirrorSpecular));
+			// an initial ambient fill so a not-yet-ticked surface (editor /
+			// frame 0) lights its body; the per-frame setWaterMaterialTime
+			// re-pushes the live hemisphere as the atmosphere animates
+			pushWaterAmbient(params);
 			// the atmospheric-fog terms for the fragment fog block (the
 			// per-frame scroll update keeps them live)
 			pushWaterFogParams(params);
@@ -2372,17 +2466,12 @@ namespace Orkige
 				applyReflectionParams(pass, desc, composeRefract, 0.0f, 0.0f);
 				gReflectiveWaterMaterials.insert(name);
 				ReflectKnobs knobs;
-				// stored PRE-COMPUTED F0 (the same formula applyReflectionParams
-				// pushes, incl. its opacity scale - the sibling's transparency
-				// upload scales the fresnel) - the per-frame scroll re-push
-				// sends it verbatim
-				knobs.reflectStrength = std::clamp(
-					std::clamp(0.02f * std::max(desc.fresnelPower, 0.0f),
-						0.0f, 0.2f) +
-					std::clamp(desc.reflectionStrength, 0.0f, 1.0f) * 0.12f,
-					0.02f, 0.3f) * std::clamp(desc.opacity, 0.0f, 1.0f);
-				knobs.baseScale = 1.0f -
-					std::clamp(desc.reflectionStrength, 0.0f, 1.0f) * 0.35f;
+				// stored PRE-COMPUTED material numbers, from the SAME helpers
+				// applyReflectionParams pushes (the effective fresnel F0 and the
+				// body albedo scale) - the per-frame scroll re-push sends them
+				// verbatim
+				knobs.reflectStrength = waterMirrorFresnelF0(desc);
+				knobs.albedoScale = waterMirrorAlbedoScale(desc);
 				knobs.waveHeight = std::max(desc.waveHeight, 0.0f);
 				knobs.waveScale = std::max(desc.waveScale, 0.001f);
 				knobs.refractStrength = std::max(desc.refractionStrength, 0.0f);
@@ -2658,9 +2747,10 @@ namespace Orkige
 			params->setNamedConstant("refractParams", Ogre::Vector4(
 				k.refractStrength, k.waveScale, travel, travel * 0.6f));
 			// reflectParams keeps its build-time F0 + refract-enabled flag +
-			// body-dim scale
+			// body ALBEDO scale + the shared mirror kS
 			params->setNamedConstant("reflectParams", Ogre::Vector4(
-				k.reflectStrength, k.refractEnabled, k.baseScale, 0.0f));
+				k.reflectStrength, k.refractEnabled, k.albedoScale,
+				kWaterMirrorSpecular));
 			// the geometric swell (VS): amplitude + the shared world-space
 			// frequency, phased by the shared clock rate (the same formula
 			// and constants the next flavor's water vertex stage runs)
@@ -2685,7 +2775,9 @@ namespace Orkige
 				params->setNamedConstant("sunTowards",
 					Ogre::Vector4(0.0f, 1.0f, 0.0f, 0.0f));
 			}
-			// the atmosphere animates per frame - keep the fog terms live
+			// the hemisphere fill drives the LIT body and the atmosphere
+			// animates per frame - keep both live
+			pushWaterAmbient(params);
 			pushWaterFogParams(params);
 			return;
 		}
