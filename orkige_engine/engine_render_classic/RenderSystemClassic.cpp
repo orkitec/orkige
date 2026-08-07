@@ -185,13 +185,37 @@ namespace Orkige
 		{
 			std::vector<std::pair<Ogre::Entity*, bool>> mHidden;
 			void preRenderTargetUpdate(const Ogre::RenderTargetEvent&) override;
-			void postRenderTargetUpdate(const Ogre::RenderTargetEvent&) override
+			void postRenderTargetUpdate(
+				const Ogre::RenderTargetEvent& event) override
 			{
 				for(std::pair<Ogre::Entity*, bool> const & each : this->mHidden)
 				{
 					each.first->setVisible(each.second);
 				}
 				this->mHidden.clear();
+				// diagnostics: ORKIGE_DUMP_MIRROR=<path.png> writes the mirror
+				// render target once, so a wrong-looking reflection can be
+				// inspected directly. The sibling backend carries the same seam
+				// over its own mirror RTT, so ONE variable inspects either
+				// flavor's mirror content - which is what makes a mirror
+				// difference attributable to the CONTENT or to the sampling.
+				static bool sMirrorDumped = false;
+				if(sMirrorDumped || !event.source)
+				{
+					return;
+				}
+				if(char const * dumpPath = std::getenv("ORKIGE_DUMP_MIRROR"))
+				{
+					sMirrorDumped = true;
+					try
+					{
+						event.source->writeContentsToFile(dumpPath);
+					}
+					catch(Ogre::Exception const &)
+					{
+						// diagnostics only - never take the frame down
+					}
+				}
 			}
 		};
 		ReflectionListener gReflectionListener;

@@ -1110,6 +1110,16 @@ namespace Orkige
 		//! hand-build (once) + return the compositor workspace DEFINITION name the
 		//! reflection subsystem renders each active actor's mirror through
 		static String ensurePlanarReflectionWorkspaceDef();
+		//! @brief re-take the mirror's SKY - the scene background colour the
+		//! reflection pass clears to - after that colour moved
+		//! @remarks The mirror does not render the sky dome (@see
+		//! ensurePlanarReflectionWorkspaceDef): its backdrop is the clear
+		//! colour, so an animating atmosphere has to reach it or the mirror
+		//! keeps clearing to a stale sky. The clear is baked into the render-pass
+		//! descriptor when a workspace is built, so a LIVE mirror is rebuilt
+		//! through the subsystem's own slot shrink/grow. Honest no-op before any
+		//! mirror has stood up. @see RenderSystem::setWindowBackgroundColour
+		static void refreshPlanarReflectionBackground();
 		//! stand the reflection subsystem up (idempotent): construct it, allocate
 		//! its ONE reflection slot + RTT, and hand it to HlmsPbs
 		static void ensurePlanarReflectionsSubsystem();

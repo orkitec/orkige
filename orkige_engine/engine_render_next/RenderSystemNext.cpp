@@ -198,6 +198,10 @@ namespace Orkige
 			// clear pass - rebuild it (cheap, editor-frequency operation)
 			RenderBackend::recreateWindowWorkspace();
 		}
+		// the planar water mirror clears to this same colour AS ITS SKY, so an
+		// atmosphere that animates the background must reach the mirror too -
+		// otherwise a sunset leaves the reflection clearing to a stale sky
+		RenderBackend::refreshPlanarReflectionBackground();
 	}
 	//---------------------------------------------------------
 	Color RenderSystem::getWindowBackgroundColour() const

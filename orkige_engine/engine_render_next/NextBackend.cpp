@@ -1509,10 +1509,11 @@ namespace Orkige
 	//---------------------------------------------------------
 	//! hand-build (once) the compositor workspace DEFINITION the reflection
 	//! subsystem renders each active actor's mirror through: one node whose
-	//! single target renders the scene (sky through the opaque + transparent
-	//! 3D content, but NOT the water surface itself - that sits in the water
-	//! render queue this pass stops below) into the reflection RTT the
-	//! subsystem supplies as external channel 0. Returns the definition name.
+	//! single target renders the scene (the opaque + transparent 3D content,
+	//! but NEITHER the sky nor the water surface itself - the sky sits in the
+	//! queue this pass starts above, the water in the queue it stops below)
+	//! into the reflection RTT the subsystem supplies as external channel 0.
+	//! Returns the definition name.
 	String RenderBackend::ensurePlanarReflectionWorkspaceDef()
 	{
 		if(!gPlanarReflectionWorkspaceDef.empty())
@@ -1547,24 +1548,92 @@ namespace Orkige
 				targetDefinition->addPass(Ogre::PASS_SCENE));
 		scenePass->setAllLoadActions(Ogre::LoadAction::Clear);
 		scenePass->setAllClearColours(impl->windowBackground);
-		// the sky (queue 0) + all opaque/transparent 3D content, but STOP below
-		// the water queue so a reflective water surface never appears in its own
-		// mirror (@see isPlanarReflectiveWaterMaterial / MeshInstance::setMaterial)
-		scenePass->mFirstRQ = 0;
+		// THE MIRROR'S SKY IS THE SCENE BACKGROUND COLOUR, NOT THE SKY DOME.
+		// The mirror RTT is a display-space LDR target, and the sky dome's
+		// radiance sits at or above display white across its whole extent -
+		// captured into that target it stores a colourless 255,255,~247 and
+		// the surface reflects a neutral veil instead of the sky's colour,
+		// measurably 7.4x the atmosphere's own background in linear light. A
+		// mirror that cannot carry the sky's radiance must not pretend to: the
+		// atmosphere's background colour IS the sky colour, un-clipped, and it
+		// is what the sibling flavor's mirror viewport has always cleared to,
+		// so both flavors' mirrors now carry the same picture. The blazing
+		// backdrop was also what made the ripple's mirror-UV perturbation visible
+		// as a bright rim around every reflected silhouette (a 164-level contrast
+		// step to bleed across, against 11 on the sibling).
+		// The surface still receives the sky through its hemisphere ambient, on
+		// both flavors, exactly as the non-mirror water does.
+		// So: start ABOVE the sky queue, and STOP below the water queue so a
+		// reflective water surface never appears in its own mirror
+		// (@see isPlanarReflectiveWaterMaterial / MeshInstance::setMaterial).
+		scenePass->mFirstRQ = kSkyRenderQueue + 1u;
 		scenePass->mLastRQ = RenderBackend::WATER_REFRACTION_RENDER_QUEUE;
 		// generate the mip chain from the just-rendered mirror. ApiDefault uses the
 		// graphics auto-mipmap path, which matches the texture's AllowAutomipmaps
 		// flag (the subsystem stands up with the non-compute mipmap method, so the
 		// RTT is NOT a UAV and a compute filter would not apply).
 		targetDefinition->addPass(Ogre::PASS_MIPMAP);
-		// no shadow node: the mirror renders the lit scene + sky without a
-		// second PSSM pass (a robust first tier; shadows-in-reflections is a
-		// later quality knob) - the reflection stays capability/tier honest
+		// no shadow node: the mirror renders the lit scene without a second
+		// PSSM pass (a robust first tier; shadows-in-reflections is a later
+		// quality knob) - the reflection stays capability/tier honest
 		Ogre::CompositorWorkspaceDef* workspaceDefinition =
 			compositorManager->addWorkspaceDefinition(definitionName);
 		workspaceDefinition->connectExternal(0, definitionName + "/Node", 0);
 		gPlanarReflectionWorkspaceDef = definitionName;
 		return gPlanarReflectionWorkspaceDef;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::refreshPlanarReflectionBackground()
+	{
+		if(gPlanarReflectionWorkspaceDef.empty())
+		{
+			return;	// no mirror has ever stood up - nothing carries a sky yet
+		}
+		oAssert(gRenderSystem);
+		RenderSystem::Impl* impl = gRenderSystem->mImpl;
+		Ogre::CompositorManager2* compositorManager =
+			impl->root->getCompositorManager2();
+		Ogre::CompositorNodeDef* nodeDefinition =
+			compositorManager->getNodeDefinitionNonConst(
+				gPlanarReflectionWorkspaceDef + "/Node");
+		if(!nodeDefinition || nodeDefinition->getNumTargetPasses() == 0)
+		{
+			return;
+		}
+		Ogre::CompositorPassDefVec & passes = nodeDefinition->getTargetPass(0)
+			->getCompositorPassesNonConst();
+		if(passes.empty())
+		{
+			return;
+		}
+		passes[0]->setAllClearColours(impl->windowBackground);
+		// A clear colour is copied into the render-pass descriptor when the
+		// workspace is BUILT, so the definition write above only reaches a
+		// mirror that stands up from here on. A LIVE mirror has to be rebuilt,
+		// which the subsystem does by shrinking its actor slots away and
+		// growing them back - the actors and the tracked water renderables are
+		// untouched by that, only the camera/RTT/workspace are, so the
+		// reservation is all that has to be restored.
+		if(!gPlanarReflections)
+		{
+			return;
+		}
+		gPlanarReflections->setMaxActiveActors(0u,
+			Ogre::IdString(gPlanarReflectionWorkspaceDef), true,
+			gPlanarReflectionWidth, gPlanarReflectionHeight, true,
+			Ogre::PFG_RGBA8_UNORM_SRGB, false);
+		gPlanarReflections->setMaxActiveActors(1u,
+			Ogre::IdString(gPlanarReflectionWorkspaceDef), true,
+			gPlanarReflectionWidth, gPlanarReflectionHeight, true,
+			Ogre::PFG_RGBA8_UNORM_SRGB, false);
+		if(gPlanarReflectionActor)
+		{
+			gPlanarReflections->reserve(0, gPlanarReflectionActor);
+		}
+		// the freshly created workspace/RTT would otherwise get its first
+		// nested use with no completed frame between creation and use - the
+		// exact shape the stand-up guard exists for (@see gPlanarReflectionGuard)
+		gPlanarReflectionGuard.noteWorkspaceRebuilt();
 	}
 	//---------------------------------------------------------
 	//! stand the reflection subsystem up (idempotent): construct it against
@@ -2425,6 +2494,27 @@ namespace Orkige
 			restoreLinkedSun();
 		}
 		toSun.normalise();
+		// THE FLAT CLEAR IS THE SKY AT THE HORIZON, evaluated - not the
+		// authored tint. The authored tint is a MODEL INPUT, not a colour the
+		// sky ever shows, so clearing to it left the window edges, a
+		// media-less boot and (since the planar mirror clears to this same
+		// colour as its sky) every reflective water surface reading a blue
+		// that no dome on screen carries. The one shared sky model answers
+		// what the sky actually IS at the horizon, and the sibling flavor's
+		// clear has always been exactly this evaluation, so the two flavors
+		// clear alike (@see RenderWorldClassic applyAtmosphere). Linear: this
+		// pipeline's targets carry the display encode themselves.
+		// Only for the PROCEDURAL dome - a flat/skybox/disabled sky wants the
+		// authored tint the early push above already set, for the same reason
+		// the sibling does.
+		if(wantProceduralSky && !gRenderSystem->mImpl->uiOnlyWindow)
+		{
+			const SkyEnvMap::Colour horizon = SkyEnvMap::skyColour(
+				0.0f, 0.0f, 1.0f, desc, static_cast<float>(toSun.x),
+				static_cast<float>(toSun.y), static_cast<float>(toSun.z));
+			gRenderSystem->setWindowBackgroundColour(
+				Color(horizon.r, horizon.g, horizon.b));
+		}
 		gAtmosphere->setLight(sun);
 		// the native day/night phase from the sun's elevation: sunHeight in the
 		// shader is sin(normTime * PI), so normTime = asin(elevation)/PI maps
@@ -4513,9 +4603,9 @@ namespace Orkige
 			// the mirrored surface's ambient stage, with the SPECULAR sky
 			// fill suppressed: upstream's DoAmbientLighting adds the
 			// hemisphere ambient onto envColourS AFTER the planar piece put
-			// the mirror there - the sky would then be counted twice on the
-			// water, once inside the mirrored scene and once as the fill,
-			// which the sibling program's env term does not do. The body's
+			// the mirror there, which would give this surface TWO environment
+			// speculars where the sibling program's mirror branch evaluates
+			// exactly one (its env term is the mirror sample alone). The body's
 			// DIFFUSE ambient stays - the surface is still lit - and every
 			// other branch reproduces the library piece verbatim, so this
 			// must track that piece across a pin bump. Scoped to the

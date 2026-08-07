@@ -59,18 +59,25 @@ namespace Orkige
 	//!
 	//! Planar reflection (opt-in, capability-gated - RenderCaps::PlanarReflection):
 	//! with `planarReflection` on, the surface shows a MIRROR of the actual scene
-	//! (sky + terrain + objects) rather than just the sky IBL cubemap it already
-	//! samples. classic = the textbook mirror pass: a dedicated camera reflected
+	//! (terrain + objects) rather than just the sky IBL cubemap it already
+	//! samples. Both flavors run the textbook mirror pass: a camera reflected
 	//! across the surface plane (y=`planeHeightY`, normal +Y) renders the scene
-	//! (the water surface itself hidden, geometry below the plane clipped) into a
-	//! reflection RenderTexture, which the water shader samples at the fragment's
-	//! screen UV perturbed by the ripple normal and blends over the base look by
-	//! `reflectionStrength`; it composes with screen-space refraction. next = the
-	//! reflection stays the sky IBL cubemap (the native HlmsPbs planar-reflection
-	//! subsystem is not compiled into this build) - a requested-but-unsupported
-	//! planar reflection logs one honest line and the surface renders the
-	//! byte-stable IBL look. When the capability is absent OR the flag is off the
-	//! surface is byte-identical to the sky-reflection look.
+	//! - the water surface itself hidden - into a reflection target the water
+	//! material samples at the fragment's screen UV perturbed by the ripple
+	//! normal, blended over the base look by `reflectionStrength`, composing
+	//! with screen-space refraction.
+	//!
+	//! THE MIRROR CARRIES NO SKY DOME on either flavor, and that is a property
+	//! of the target rather than a per-flavor gap: the reflection target is
+	//! display-space LDR and the sky's radiance sits at or above display white,
+	//! so a captured sky stores a colourless near-white and the surface reflects
+	//! a milky veil instead of the sky's colour. The mirror's backdrop is the
+	//! atmosphere's EVALUATED horizon colour instead - the scene background,
+	//! which is the sky colour un-clipped. The surface still receives the sky
+	//! through its hemisphere ambient, as the non-mirror water does.
+	//!
+	//! When the capability is absent OR the flag is off the surface is
+	//! byte-identical to the sky-reflection look.
 	//!
 	//! Honest v1 boundaries (both flavors): NO true depth-graded deep->shallow
 	//! transmission (still needs a depth-graded pass - a future desktop quality

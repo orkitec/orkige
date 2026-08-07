@@ -172,72 +172,92 @@ PROFILES = {
     # the streak column and measures 7 with both flavors carrying the sun
     # glint.
     #
-    # The open lower water is the band the MIRROR dominates, and it is the
-    # widest corridor on either scene for exactly that reason: two documented
-    # approximations decide what the mirror SHOWS there. The classic mirror's
-    # screen-UV paint samples its mirror target at the fragment's own screen
-    # position, so a near, steeply-down-looking fragment reads the horizon
-    # band the other flavor's true projective mapping replaces with the sky
-    # overhead; and the flavors' sky-dome colour away from the horizon
-    # differs (a seam nothing but a mirror ever sees - the direct sky bands
-    # match at delta 0). Booting the same pair with the mirror off
-    # (r.planarReflection=0), which drops both surfaces onto the shared
-    # refractive program, measures this band at 7/8/3 - so the body, the
-    # lighting, the transmitted share and the fresnel agree, and the 25 below
-    # is the mirror content alone. Its blue channel carries most of it (13/19/
-    # 25), which is the signature of a sky-versus-horizon disagreement rather
-    # than a strength one; a mirror-strength drift measured 69 under the
-    # 3x-strong calibration, so the corridor still bites on that.
-    # The streak contract HOLDS
-    # here: the glint is a DIRECT sun specular on both flavors (classic's
-    # analytic Blinn term, next's GGX lobe at the shared water roughness),
-    # so it renders regardless of what the mirror shows - ridge occlusion
-    # applies to the mirrored sun, never to the glint. This gate is what
-    # catches the glint collapsing when something narrows the lobe.
+    # THE TWO MIRRORS CARRY THE SAME PICTURE. Both flavors reflect through a
+    # camera reflected across the surface plane and sample it at the fragment's
+    # own screen position (the sibling's projective route reduces to exactly
+    # that for a point ON the plane), and neither renders the sky dome into it -
+    # the mirror is a display-space LDR target and the dome's radiance sits at
+    # or above display white, so a mirror that captured it would store a
+    # colourless veil. Both clear to the atmosphere's evaluated HORIZON colour
+    # instead. Dumping the two mirror targets side by side (ORKIGE_DUMP_MIRROR,
+    # a seam BOTH backends carry) puts the ridge line and all three reflected
+    # cubes within 3px of each other, so a disagreement in a mirrored band is a
+    # disagreement about the SURFACE, not about what the mirror shows.
+    #
+    # That is what makes the open lower water - the band the mirror dominates -
+    # a corridor like any other now: it measures 6 where the two mirrors
+    # carrying different skies left 25 (13/19/25, blue-led: the signature of the
+    # sky-versus-horizon disagreement that is now closed). A mirror-strength
+    # drift measured 69 under a 3x-strong calibration, so the corridor still
+    # bites on that with room to spare.
+    #
+    # The streak contract HOLDS here: the glint is a DIRECT sun specular on both
+    # flavors (classic's analytic Blinn term, next's GGX lobe at the shared
+    # water roughness), so it renders regardless of what the mirror shows -
+    # ridge occlusion applies to the mirrored sun, never to the glint. This gate
+    # is what catches the glint collapsing when something narrows the lobe.
+    #
+    # THE ONE OPEN SEAM this scene now measures is the glint's ANGULAR reach.
+    # Classic adds its Blinn streak as a raw additive term; the sibling's is a
+    # fresnel-gated GGX lobe, and this scene's low, close camera puts most of
+    # its water at STEEP incidence where fresnel is small. Same peak (251 vs
+    # 239 max luma down the streak column), very different breadth: classic
+    # holds 15.4% of the rock-mirror band above luma 150 against 0.7%, and 5.6%
+    # of the whole streak column against 0.9%. It is a specular-MODEL
+    # difference, not a mirror one - the same pair on the lake, whose camera
+    # looks low ACROSS the water at grazing incidence, agrees to 4/6/3 - and it
+    # sets the rock-mirror corridor below until one model moves.
     "mirrorlake.oscene": {
         "regions": {
             # direct bands: sky measures 0 today against the 8-9 record,
             # shore 3 against the 6-8 strip record; corridors at ~2x the worst
             "sky": (0.30, 0.02, 0.95, 0.08, 16.0),
             "shore": (0.15, 0.12, 0.85, 0.22, 16.0),
-            # the mirrored-ridge strips: 5 left, 5 right. The corridors stay
-            # where they were - a 2-point move is inside the spread the CI
-            # pair's own rasterizers carry, and these two strips are the
-            # tightest gates in the file
+            # the mirrored-ridge strips: 2 left, 0 right with the two mirrors
+            # carrying one picture (5 either side while they carried two). The
+            # corridors stay where they were - these two strips are the
+            # tightest gates in the file already, and tightening them further
+            # would be tightening against a measurement this pair has and the
+            # CI pair has not
             "watermirror_l": (0.08, 0.25, 0.40, 0.28, 15.0),
             "watermirror_r": (0.60, 0.25, 0.92, 0.28, 18.0),
-            # measures 7 with both flavors composing one lit surface (12 while
-            # the classic mirror branch painted an unlit body); corridor at
-            # the same ~2.4x margin the 12 carried
-            "rockmirror": (0.38, 0.38, 0.52, 0.50, 18.0),
-            # measures 25 - the mirror-content seam alone (7/8/3 with the
-            # mirror off), where the unlit body left 35; corridor at the same
-            # ~1.4x margin the 35 carried
-            "water_open": (0.05, 0.36, 0.35, 0.52, 36.0),
+            # measures 18 (7 while a milky mirror sky was lifting this band
+            # into accidental agreement - the same band read 84.5 luma against
+            # classic's 88.0 then and 70.7 against 88.0 now). What it measures
+            # is the glint-breadth seam named above, in the one band that sits
+            # in the streak column on purpose; corridor at ~1.7x, to be brought
+            # back toward the other bands' single digits when a glint model moves
+            "rockmirror": (0.38, 0.38, 0.52, 0.50, 30.0),
+            # measures 6 - down from 25, the mirror-content seam being closed -
+            # so this stops being the widest corridor in the file and joins the
+            # lake water band's ~2.3x sizing over the worst of its own
+            # measurement and the 7 the CI pair records where this pair reads 0
+            "water_open": (0.05, 0.36, 0.35, 0.52, 16.0),
         },
         "structure": {
-            # the mirrored ridge, the sharpest transmitted detail either
-            # flavor shows here: measured sd 1.65 / grad 1.52 left,
-            # 1.62 / 1.35 right
-            "watermirror_l": (0.90, 0.80),
-            "watermirror_r": (0.90, 0.72),
-            # the waterline rocks through the streak column: the one band
-            # where classic carries MORE detail than next by a wide margin
-            # (measured sd 0.43 / grad 0.44, both against a classic reading
-            # several times next's), so its floors are set a little tighter
-            # in relative terms - 0.60x rather than 0.55x
-            "rockmirror": (0.26, 0.26),
-            # VANISH-ONLY floors, and the exception that proves the rule:
-            # this is the band the MIRROR dominates, so what each side's
-            # structure reads is what its own mirror shows there - classic's
-            # screen-UV paint stretches a smooth horizon band across it while
-            # the projective mapping puts sharp mirrored rock in the same
-            # place. The ratio therefore says more about the two mappings
-            # than about either surface (measured sd 5.06 / grad 1.04), and
-            # it is not a stable denominator until that approximation is
-            # closed. These two catch a transmitted image going away entirely
-            # and deliberately nothing finer
-            "water_open": (0.50, 0.50),
+            # THE RATIOS BECAME COMPARABLE when the two mirrors became one
+            # picture, and every floor here is re-derived from what the pair
+            # measures now at the file's stated ~0.55x sizing. Three of the
+            # four readings MOVED TOWARD 1.0 - the mirrored ridge from 1.65 to
+            # 0.99 sd, and the open water from a meaningless 5.06 to 1.02 -
+            # because each side is no longer being asked how much structure its
+            # OWN backdrop happened to carry.
+            #
+            # the mirrored ridge, the sharpest transmitted detail either flavor
+            # shows here: measured sd 0.99 / grad 1.22 left, 0.94 / 1.19 right
+            "watermirror_l": (0.55, 0.65),
+            "watermirror_r": (0.55, 0.65),
+            # the waterline rocks through the streak column: the band the
+            # glint-breadth seam lands in, so classic carries several times
+            # next's detail here by design of that seam and not of the mirror
+            # (measured sd 0.40 / grad 0.30)
+            "rockmirror": (0.22, 0.16),
+            # the open lower water: measured sd 1.02 / grad 0.49. The sd says
+            # the two transmitted images now hold the same amount of variation;
+            # the gradient says next spreads it over lower frequencies - the
+            # residual of the same specular seam, and the one reading here that
+            # is still well under 1.0
+            "water_open": (0.56, 0.27),
         },
         "streak": True,
     },
