@@ -57,18 +57,17 @@ import parity_diff  # noqa: E402
 from run_benchmark_pixel_test import decode_png, pixel  # noqa: E402
 
 
-#: What the CI rasterizer pair (software GL against software Vulkan) measures
-#: for these corridors, from a green run of the parity job - max channel delta
-#: against the corridor:
+#: Max channel delta measured on the DEVELOPER pair (Metal against desktop GL):
 #:
-#:   lake        sky 7/28    terrain 4/28   water 26/28
-#:   mirrorlake  sky 8/22    shore 4/20     watermirror 15/20, 19/20
-#:               rockmirror 30/33           water_open 47/55
+#:   lake        sky 0      terrain 2      water 6
+#:   mirrorlake  sky 0      shore 3        watermirror 7 left, 8 right
+#:               rockmirror 13             water_open 35
 #:
-#: The corridors hold on that pair, several of them with little room: the lake
-#: water sits two levels under its 28 and the mirror rock three under its 33.
-#: They were measured on the developer pair, so nothing here is tightened
-#: without a measurement - a corridor moved by guesswork blocks merges.
+#: The CI pair is a different software rasterizer on each side and measures its
+#: own numbers on the parity job; the corridors below sit at roughly twice the
+#: worst measurement rather than at it, so both pairs fit. Nothing here is
+#: tightened without a measurement - a corridor moved by guesswork blocks
+#: merges - and nothing is loosened to make a run pass.
 #:
 #: per-scene comparison profiles: named regions as frame fractions
 #: (fx0, fy0, fx1, fy1, corridor) plus whether the scene carries the
@@ -81,58 +80,54 @@ PROFILES = {
     # toward the sun - sky above, the shore island band mid-frame (sampled
     # left of the sun-streak column, whose breadth differs legitimately
     # between the flavors' specular models), open water across the lower
-    # half. The 28 corridor's history: the classic atmospheric object fog
-    # (the generated materials' fog stage + the water programs' fog block
-    # now run the default backend's exact haze-colour/transmittance
-    # formulas) dropped the shore band from its historical ~32 delta to a
-    # measured 10 and the sky to 7; the ratio-true HDR water mirror dropped
-    # the water band from its ~20 to a measured 5. The showcase lake then
-    # opened its water to opacity 0.55 (the refracted scene carries 45% of
-    # the compose), which exposes the remaining flavor seams at 3x their
-    # former weight; the specular-hemisphere lane + the shared mirror
-    # source trimmed the water band to a measured 25 (sky 7, terrain 4).
-    # The residual is the flavors' ENV-FILL sampling of the environment
-    # chain's deep mips (the classic stage reads the mathematical face
-    # average, the default backend's native env sample reads measurably
-    # darker from the SAME chain bytes - the named successor task). The
-    # corridor tracks that honestly and re-tightens when that seam closes.
+    # half. The water band is the tight one because the lake's opacity is
+    # 0.55: the refracted scene carries 45% of the compose, so every seam in
+    # the transmitted image lands there at nearly half weight. Both flavors
+    # now transmit that scene at its true LINEAR radiance - the default
+    # backend decodes the opaque scene target out of the pipeline's display
+    # space before its water refracts it, the classic grab-pass squares its
+    # display-space grab for the same reason - and the band measures 6.
     "lake.oscene": {
         "regions": {
-            # the open sky above the horizon (measures 7 on the developer
-            # Metal/GL pair and 7 on the CI llvmpipe/lavapipe pair; corridor
-            # at 2x the worst measurement)
+            # the open sky above the horizon (measures 0 on the developer
+            # Metal/GL pair, 7 in the CI record; corridor at 2x the worst)
             "sky": (0.35, 0.10, 0.95, 0.24, 14.0),
             # the shore island band (left half, clear of the streak column;
-            # measures 4-5 on both pairs today, 10 in the fog-work record -
-            # the corridor clears the historical worst at 1.6x)
+            # measures 2 today, 10 in the fog-work record - the corridor
+            # clears the historical worst at 1.6x)
             "terrain": (0.25, 0.31, 0.44, 0.41, 16.0),
-            # the open water foreground, flanking the streak (measures 25-26
-            # on both pairs - the env-fill deep-mip seam; tight by design)
-            "water": (0.05, 0.55, 0.35, 0.85, 28.0),
+            # the open water foreground, flanking the streak: measures 6 with
+            # both flavors transmitting true linear radiance (26 while the
+            # default backend's water read its refraction source as linear
+            # when the source was display-encoded). Corridor at 2.3x the
+            # measurement, so the CI pair's own rasterizer spread fits
+            "water": (0.05, 0.55, 0.35, 0.85, 14.0),
         },
         "streak": True,
     },
     # the planar-mirror sibling: a low, close camera over a calm surface, the
     # widened shore ridge spanning the far edge, waterline rocks. The tight
     # gates are where BOTH flavors mirror the SAME content: the waterline
-    # strips (the mirrored ridge, measured delta 6-8) and the rock-mirror
+    # strips (the mirrored ridge, measured delta 7-8) and the rock-mirror
     # band. That band sits in the streak column, and with BOTH flavors
-    # carrying the sun glint it measures delta 30 on the CI pair - moving
+    # carrying the sun glint it measures 13 on the developer pair - moving
     # the box off the streak is worse, because the open water flanking it
-    # carries the raw body-brightness seam at 36-47 (classic's unlit
-    # painted body against the default backend's lit surface, the named
-    # open item). The 33 corridor sits between that measured 30 and the
-    # old 3x-strong mirror calibration's 35, which was measured WITHOUT
-    # the streak and only rises with it - so a mirror-strength drift still
-    # breaches, and the corridor re-tightens when the body seam closes.
+    # carries the raw body-brightness seam (classic's unlit painted body
+    # against the default backend's lit surface, the named open item). The
+    # corridor clears the CI pair's own spread over that measurement and
+    # still breaches on a mirror-strength drift, which the 3x-strong
+    # calibration measured at 35 WITHOUT the streak and only rises with it.
     # The open lower water mirrors the MID/HIGH sky, where two documented
     # approximations diverge: the flavors' sky-dome colour away from the
     # horizon (a seam nothing but a mirror ever sees - the direct sky bands
-    # match at delta 9) and the classic mirror's screen-UV paint, which
+    # match at delta 0) and the classic mirror's screen-UV paint, which
     # stretches the mirrored ridge further down than the default backend's
-    # true projective mapping. Measured 44 healthy vs 69 under the
-    # 3x-strong calibration - the 55 corridor bites on strength drift and
-    # re-tightens when the sky-dome seam closes. The streak contract HOLDS
+    # true projective mapping. On top of those, classic's mirror program
+    # paints an UNLIT body while the default backend's is a lit surface, so
+    # this band stays the widest corridor on either scene: measured 35
+    # against 69 under the 3x-strong calibration, so the corridor still
+    # bites on strength drift and re-tightens when the body seam closes.
+    # The streak contract HOLDS
     # here: the glint is a DIRECT sun specular on both flavors (classic's
     # analytic Blinn term, next's GGX lobe at the shared water roughness),
     # so it renders regardless of what the mirror shows - ridge occlusion
@@ -140,15 +135,19 @@ PROFILES = {
     # catches the glint collapsing when something narrows the lobe.
     "mirrorlake.oscene": {
         "regions": {
-            # direct bands: sky measures 8-9 on both pairs, shore 3-4 today
-            # against the 6-8 strip record; corridors at ~2x the worst
+            # direct bands: sky measures 0 today against the 8-9 record,
+            # shore 3 against the 6-8 strip record; corridors at ~2x the worst
             "sky": (0.30, 0.02, 0.95, 0.08, 16.0),
             "shore": (0.15, 0.12, 0.85, 0.22, 16.0),
-            # the mirrored-ridge strips: 7-8 left, 8-9 right on both pairs
+            # the mirrored-ridge strips: 7 left, 8 right
             "watermirror_l": (0.08, 0.25, 0.40, 0.28, 15.0),
             "watermirror_r": (0.60, 0.25, 0.92, 0.28, 18.0),
-            "rockmirror": (0.38, 0.38, 0.52, 0.50, 33.0),
-            "water_open": (0.05, 0.36, 0.35, 0.52, 55.0),
+            # measures 13 (17 before both flavors transmitted the refracted
+            # scene at true linear radiance)
+            "rockmirror": (0.38, 0.38, 0.52, 0.50, 28.0),
+            # measures 35 (39 before the same change); the body seam keeps it
+            # the widest corridor here
+            "water_open": (0.05, 0.36, 0.35, 0.52, 50.0),
         },
         "streak": True,
     },

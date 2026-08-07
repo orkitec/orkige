@@ -26,3 +26,29 @@ material Orkige/Refraction/Copy
 		}
 	}
 }
+
+//---------------------------------------------------------------------------
+// The same quad, decoding the opaque scene colour from the pipeline's display
+// space back to LINEAR, so the refractive water samples true radiance. Its own
+// material because the plain COPY above must stay a byte passthrough.
+//---------------------------------------------------------------------------
+
+material Orkige/Refraction/Linearize
+{
+	technique
+	{
+		pass
+		{
+			depth_check off
+			depth_write off
+			cull_hardware none
+			vertex_program_ref Ogre/Compositor/Quad_vs {}
+			fragment_program_ref Orkige/Refraction/Linearize_ps {}
+			texture_unit
+			{
+				tex_address_mode clamp
+				filtering none
+			}
+		}
+	}
+}

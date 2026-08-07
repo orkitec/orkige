@@ -28,7 +28,7 @@
       }
     },
     "lake.oscene": {
-      "_comment": "trisMax raised for the 64x64 shared water plane (8192 tris, was 512): 16 quads under-sampled the ~12.6-unit swell wavelength (~2.3 verts/wave, Nyquist-borderline) and aliased into phantom double crests + visible polygons; 64 lands ~9 verts/wave. Measured after: classic 13594, next 17330.",
+      "_comment": "trisMax covers the 64x64 shared water plane (8192 tris): 16 quads under-sampled the ~12.6-unit swell wavelength (~2.3 verts/wave, Nyquist-borderline) and aliased into phantom double crests + visible polygons; 64 lands ~9 verts/wave. Measured: classic 8.1 batches / 13594 tris, next 10.1 / 17331. The next flavor's refraction workspace spends ONE full-screen quad decoding the opaque scene target out of the pipeline's display space, so the water refracts true linear radiance; it is inside this batch count and both ceilings clear it.",
       "classic": {
         "batchesMin": 4,
         "batchesMax": 14,
@@ -41,7 +41,7 @@
       }
     },
     "mirrorlake.oscene": {
-      "_comment": "The planar-mirror sibling of the lake. Measured (deterministic 240-frame recipe): next 12.1 batches / 20968 tris - the compositor stat COUNTS the mirror pass's re-render (the lake's 17330 + the mirrored terrain/rocks/sky), so the next ceilings sit above the lake's. classic 8.1 / 13594: its primary-target stat does NOT include the mirror RTT pass, so its corridor matches the lake's (the mirror's cost shows in frame-ms, which is reported, not gated). This corridor is checked on every host whose driver renders the scene. On Windows CI the WHOLE mirrorlake scene is quarantined (benchmark.skipScenes=mirrorlake, see run_benchmark_budget_test.py): that host's software-Vulkan driver-compiler faults on the scene's material/shader mix (a fault reached within ~0.5s of the scene load with planar reflection already off - so not the planar mirror render specifically), so the scene is never booted there and this corridor is simply not evaluated on that one host. No per-OS number split is needed.",
+      "_comment": "The planar-mirror sibling of the lake. Measured (deterministic 240-frame recipe): next 13.1 batches / 20954 tris - one of those batches is the refraction workspace's display-to-linear decode quad (see lake.oscene); the compositor stat COUNTS the mirror pass's re-render (the lake's 17330 + the mirrored terrain/rocks/sky), so the next ceilings sit above the lake's. classic 8.1 / 13594: its primary-target stat does NOT include the mirror RTT pass, so its corridor matches the lake's (the mirror's cost shows in frame-ms, which is reported, not gated). This corridor is checked on every host whose driver renders the scene. On Windows CI the WHOLE mirrorlake scene is quarantined (benchmark.skipScenes=mirrorlake, see run_benchmark_budget_test.py): that host's software-Vulkan driver-compiler faults on the scene's material/shader mix (a fault reached within ~0.5s of the scene load with planar reflection already off - so not the planar mirror render specifically), so the scene is never booted there and this corridor is simply not evaluated on that one host. No per-OS number split is needed.",
       "classic": {
         "batchesMin": 4,
         "batchesMax": 14,

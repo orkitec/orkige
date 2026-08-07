@@ -3102,12 +3102,21 @@ namespace Orkige
 			!useRefraction && !useGrade && RenderBackend::bloomActive();
 		if(useRefraction)
 		{
-			// Three textures, chosen so NO resource is read and written in the same
+			// Four textures, chosen so NO resource is read and written in the same
 			// pass (Metal returns garbage for such feedback):
-			//   SceneRT   - the opaque scene colour the water refracts (SAMPLED by
-			//               the water pass, never written by it). NON-sRGB, so the
-			//               final copy to the non-sRGB window is a byte passthrough
-			//               (the colour-parity rule).
+			//   SceneRT   - the opaque scene colour (SAMPLED, never written by the
+			//               water pass). NON-sRGB, so the final copy to the
+			//               non-sRGB window is a byte passthrough (the
+			//               colour-parity rule).
+			//   RefractRT - SceneRT decoded from the pipeline's DISPLAY space back
+			//               to LINEAR, and what the water actually refracts. A
+			//               non-sRGB target makes the PBS shader write sqrt(linear),
+			//               while the water datablock's refraction term adds what it
+			//               samples into a LINEAR accumulator that is encoded once
+			//               at the end - so sampling SceneRT directly would encode
+			//               the transmitted scene TWICE. Float, because a dark
+			//               lakebed's true radiance lives in the bottom few
+			//               percent, where 8 bits of linear has almost no steps.
 			//   SceneDepth- an explicit, SAMPLEABLE depth texture: written by the
 			//               opaque pass, then read-only for the water pass (its
 			//               depth-test AND the refraction depth-fallback).
@@ -3121,6 +3130,21 @@ namespace Orkige
 				tex->widthFactor = 1.0f;
 				tex->heightFactor = 1.0f;
 				tex->format = Ogre::PFG_RGBA8_UNORM;
+			}
+			{
+				Ogre::TextureDefinitionBase::TextureDefinition* refractTex =
+					nodeDefinition->addTextureDefinition("RefractRT");
+				refractTex->widthFactor = 1.0f;
+				refractTex->heightFactor = 1.0f;
+				refractTex->format = Ogre::PFG_RGBA16_FLOAT;
+				// colour only - the decode quad neither tests nor writes depth
+				Ogre::RenderTargetViewDef* refractRtv =
+					nodeDefinition->addRenderTextureView("RefractRT");
+				refractRtv->colourAttachments.push_back(
+					Ogre::RenderTargetViewEntry());
+				refractRtv->colourAttachments.back().textureName =
+					Ogre::IdString("RefractRT");
+				refractRtv->depthBufferId = 0;
 			}
 			Ogre::TextureDefinitionBase::TextureDefinition* depthTex =
 				nodeDefinition->addTextureDefinition("SceneDepth");
@@ -3142,8 +3166,9 @@ namespace Orkige
 				rtv->preferDepthTexture = true;
 				rtv->depthBufferFormat = Ogre::PFG_D32_FLOAT;
 			}
-			// SceneRT opaque(1) + WaterRT copy+water(2) + WindowRT copy+UI(2)
-			nodeDefinition->setNumTargetPass(3);
+			// SceneRT opaque(1) + RefractRT decode(1) + WaterRT copy+water(2)
+			// + WindowRT copy+UI(2)
+			nodeDefinition->setNumTargetPass(4);
 			const String shadowNode = RenderBackend::activeShadowNodeName();
 			// --- the opaque scene (below the water queue) into SceneRT ---
 			{
@@ -3162,8 +3187,21 @@ namespace Orkige
 					scenePass->mShadowNode = Ogre::IdString(shadowNode);
 				}
 			}
+			// --- decode the opaque scene into RefractRT: the LINEAR radiance the
+			//     water refracts (@see the texture table above) ---
+			{
+				Ogre::CompositorTargetDef* refractTarget =
+					nodeDefinition->addTargetPass("RefractRT");
+				refractTarget->setNumPasses(1);
+				Ogre::CompositorPassQuadDef* decodePass =
+					static_cast<Ogre::CompositorPassQuadDef*>(
+						refractTarget->addPass(Ogre::PASS_QUAD));
+				decodePass->setAllLoadActions(Ogre::LoadAction::DontCare);
+				decodePass->mMaterialName = "Orkige/Refraction/Linearize";
+				decodePass->addQuadTextureSource(0, "SceneRT");
+			}
 			// --- copy the opaque scene into WaterRT, then the refractive water
-			//     ONLY on top (sampling the untouched SceneRT + read-only depth) ---
+			//     ONLY on top (sampling the decoded RefractRT + read-only depth) ---
 			{
 				Ogre::CompositorTargetDef* waterTarget =
 					nodeDefinition->addTargetPass("WaterRT");
@@ -3187,9 +3225,11 @@ namespace Orkige
 				// the HlmsPbs Refractive datablocks read the captured scene colour
 				// at a normal-perturbed screen UV + the scene depth (the fallback
 				// when the refracted pixel is in front); read-only depth preserves
-				// the opaque depth this pass still tests against
+				// the opaque depth this pass still tests against. The colour they
+				// read is the DECODED RefractRT, because the term composes in
+				// linear (@see the texture table above)
 				waterPass->setUseRefractions(Ogre::IdString("SceneDepth"),
-					Ogre::IdString("SceneRT"));
+					Ogre::IdString("RefractRT"));
 			}
 			// --- copy WaterRT onto the window, then the GUI / 2D layers on top ---
 			{

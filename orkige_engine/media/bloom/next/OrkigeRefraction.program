@@ -31,3 +31,31 @@ fragment_program Orkige/Refraction/Copy_ps unified
 	delegate Orkige/Refraction/Copy_ps_VK
 	delegate Orkige/Refraction/Copy_ps_Metal
 }
+
+//---------------------------------------------------------------------------
+// The DISPLAY -> LINEAR decode of the opaque scene colour the water refracts.
+// The opaque target is not an sRGB surface, so the scene is written through the
+// pipeline's sqrt display transfer; the water's refraction term accumulates in
+// LINEAR and encodes once at the end, so it needs the scene decoded first.
+//---------------------------------------------------------------------------
+
+//------------------------ OpenGL GLSL ------------------------
+fragment_program Orkige/Refraction/Linearize_ps_GLSL glsl { source RefractionLinearize_ps.glsl }
+
+//------------------------ Vulkan GLSL ------------------------
+fragment_program Orkige/Refraction/Linearize_ps_VK glslvk { source RefractionLinearize_ps.glsl }
+
+//------------------------ Metal ------------------------
+fragment_program Orkige/Refraction/Linearize_ps_Metal metal
+{
+	source RefractionLinearize_ps.metal
+	shader_reflection_pair_hint Ogre/Compositor/Quad_vs
+}
+
+//------------------------ Unified ------------------------
+fragment_program Orkige/Refraction/Linearize_ps unified
+{
+	delegate Orkige/Refraction/Linearize_ps_GLSL
+	delegate Orkige/Refraction/Linearize_ps_VK
+	delegate Orkige/Refraction/Linearize_ps_Metal
+}
