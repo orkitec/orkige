@@ -320,6 +320,22 @@ FEATURE_SHOTS = {
         6.0, 0.02, 6.0, False,
         "FLAT PAIR: both flavors render one flat clear colour with the sky "
         "suppressed"),
+    # the ambient FILL trio: a wall lit by the ambient term alone, under the
+    # authored hemisphere, under the sky-driven one, and after a sky-type
+    # change hands the authored fill back. Both flavors answer the same three
+    # readings, so the frames agree.
+    "selfcheck_ambient_authored_fill.png": ShotCorridor(
+        6.0, 0.02, 6.0, True,
+        "the authored hemisphere alone on a wall that takes no direct light: "
+        "mean 0.00, outliers 0.00%, region tl 0.0"),
+    "selfcheck_ambient_driven_fill.png": ShotCorridor(
+        6.0, 0.02, 6.0, True,
+        "the same wall filled by the sky the atmosphere drives: mean 0.02, "
+        "outliers 0.00%, region br 0.0"),
+    "selfcheck_ambient_type_switch.png": ShotCorridor(
+        6.0, 0.02, 6.0, True,
+        "the fill a sky-type change hands back - identical to the authored "
+        "frame on both flavors: mean 0.00, outliers 0.00%, region tl 0.0"),
 
     # -- sky: the procedural dome, the skybox cube, the flat colour.
     "selfcheck_sky_procedural.png": ShotCorridor(

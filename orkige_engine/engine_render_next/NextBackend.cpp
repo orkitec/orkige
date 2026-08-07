@@ -2304,6 +2304,19 @@ namespace Orkige
 		// sky=false NOTHING draws over the flat sky-tint clear, whatever the type.
 		const bool wantProceduralSky = desc.sky &&
 			desc.skyType == AtmosphereSky::ST_PROCEDURAL;
+		// THE FILL BELONGS TO THE SKY THAT IS ACTUALLY SHOWN. The atmosphere
+		// writes the scene ambient only while it is ATTACHED to this scene
+		// manager, and it is attached only while the procedural sky is up
+		// (AtmosphereNpr::setSky detaches on the way down and its light sync
+		// then skips this scene). Nothing else re-writes the ambient, so a
+		// detach would leave the last DRIVEN hemisphere standing under a
+		// skybox or flat-colour sky the model does not describe - lighting
+		// those surfaces from an invisible sky. Note the transition here and
+		// hand the AUTHORED hemisphere back below, once the environment chain
+		// has settled (the write carries the envmap scale). The other backend
+		// resolves the same way (@see restoreAuthoredAmbient).
+		const bool proceduralSkyDetached =
+			gAtmosphereSkyVisible && !wantProceduralSky;
 		if(wantProceduralSky != gAtmosphereSkyVisible)
 		{
 			gAtmosphere->setSky(sceneManager, wantProceduralSky);
@@ -2364,6 +2377,15 @@ namespace Orkige
 		// deactivates or rebuilds; a cheap no-op while the opt-in is off) -
 		// BEFORE the preset fill below, so envmapScale reads the fresh state
 		RenderBackend::applyImageLighting();
+		if(proceduralSkyDetached && gRenderSystem->getWorld())
+		{
+			// the procedural sky just went away: the authored hemisphere is
+			// the fill again, pushed through the ONE ambient road so the
+			// response pinning holds for it (@see applySceneAmbient)
+			RenderWorld::Impl* ambientWorld = gRenderSystem->getWorld()->mImpl;
+			RenderBackend::applySceneAmbient(sceneManager,
+				ambientWorld->ambient, ambientWorld->ambientLower);
+		}
 
 		// SUN LINKAGE: the first directional light is the sun; read its current
 		// direction (authored via its node) so orienting the light sweeps the

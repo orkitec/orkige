@@ -2451,6 +2451,190 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 			greySlab.reset();
 			SELFCHECK(renderFrames(renderSystem, 2),
 				"frames render after the exposure probe was dropped");
+
+			// --- the fill a sky-TYPE change hands back ----------------
+			// The atmosphere drives the ambient fill only under the
+			// PROCEDURAL sky - the model it evaluates. Switching to a
+			// skybox or a flat colour shows a DIFFERENT sky, so the
+			// authored ambient is the fill again, and it must come back
+			// on its own: nothing else writes the scene ambient, so a
+			// backend that merely stops driving leaves its last driven
+			// hemisphere lighting surfaces from a sky nothing draws.
+			// The shape that exposes it is a NON-BLACK authored ambient
+			// with image lighting OFF (a black fill is indistinguishable
+			// from no fill, and image lighting re-pushes the authored
+			// value for its own reasons). Measured WITHIN a flavor, so
+			// each answers with its own ambient response.
+			{
+				RenderMaterialDesc fillDesc;
+				fillDesc.albedo = Color(0.7f, 0.7f, 0.7f, 1.0f);
+				fillDesc.metalness = 0.0f;
+				fillDesc.roughness = 1.0f;
+				SELFCHECK(renderSystem->createMaterial(
+					"selfcheck.ambientFill", fillDesc),
+					"the ambient-fill probe material builds");
+				// a wall standing across the view: the slab's flat top
+				// (+Y) turned to face +Z, where the camera is
+				const Vec3 fillCentre(900, 6, 0);
+				optr<RenderNode> fillNode =
+					world->createNode("selfcheck.ambientFillWall");
+				fillNode->setPosition(fillCentre);
+				fillNode->setScale(Vec3(12, 1, 12));
+				fillNode->setOrientation(Quat(Degree(90), Vec3::UNIT_X));
+				optr<MeshInstance> fillWall =
+					world->createMeshInstance("jumper_platform.glb");
+				SELFCHECK(fillWall != NULL,
+					"the ambient-fill probe mesh loads");
+				fillWall->attachTo(fillNode);
+				fillWall->setCastShadows(false);
+				SELFCHECK(fillWall->setMaterial("selfcheck.ambientFill"),
+					"the ambient-fill probe mesh takes its material");
+				// the sun travels DOWN and toward +Z, so it stands above
+				// and BEHIND the wall: the face the camera sees is turned
+				// away from it and takes no direct light at all. What that
+				// face reads is the ambient fill and nothing else - which
+				// is what makes the three captures comparable while the
+				// sun's own colour changes underneath them.
+				optr<RenderNode> fillSunNode =
+					world->createNode("selfcheck.ambientFillSun");
+				fillSunNode->setDirection(Vec3(0.0f, -1.0f, 0.6f),
+					RenderNode::TS_WORLD);
+				optr<RenderLight> fillSun = world->createLight();
+				fillSun->attachTo(fillSunNode);
+				fillSun->setType(RenderLight::LT_DIRECTIONAL);
+				camera->setPerspective(Degree(55), Real(1.0), Real(500));
+				cameraNode->setPosition(fillCentre + Vec3(0, 0, 26));
+				cameraNode->lookAt(fillCentre, RenderNode::TS_WORLD);
+
+				// image lighting stays OFF for the whole probe (its
+				// activation re-pushes the authored ambient by itself)
+				world->setImageLighting(false, Real(1));
+				// a strongly RED authored fill: no sky this leg shows
+				// drives anything like it, so a stale driven hemisphere
+				// cannot be mistaken for the authored one
+				world->setAmbientLight(Color(0.45f, 0.08f, 0.08f, 1.0f));
+
+				auto fillProbe = [&](std::string const & imageFile,
+					float & outRed, float & outGreen, float & outBlue) -> bool
+				{
+					Real nx = 0, ny = 0;
+					if(!camera->projectPoint(fillCentre, nx, ny))
+					{
+						return false;
+					}
+					const int cx = static_cast<int>(nx * (atmoW - 1));
+					const int cy = static_cast<int>(ny * (atmoH - 1));
+					float sumR = 0, sumG = 0, sumB = 0;
+					int samples = 0;
+					for(int dx = -2; dx <= 2; ++dx)
+					{
+						for(int dy = -2; dy <= 2; ++dy)
+						{
+							const int sx = cx + dx * 2;
+							const int sy = cy + dy * 2;
+							if(sx < 0 || sy < 0 ||
+								sx >= static_cast<int>(atmoW) ||
+								sy >= static_cast<int>(atmoH))
+							{
+								continue;
+							}
+							float red = 0, green = 0, blue = 0;
+							if(!SelfcheckBootstrap::readImagePixel(imageFile,
+								static_cast<unsigned int>(sx),
+								static_cast<unsigned int>(sy), red, green, blue))
+							{
+								continue;
+							}
+							sumR += red;
+							sumG += green;
+							sumB += blue;
+							++samples;
+						}
+					}
+					if(samples == 0)
+					{
+						return false;
+					}
+					outRed = sumR / static_cast<float>(samples);
+					outGreen = sumG / static_cast<float>(samples);
+					outBlue = sumB / static_cast<float>(samples);
+					return true;
+				};
+
+				// REFERENCE: the authored fill with nothing driving it -
+				// the atmosphere has never been attached in this state, so
+				// this is what the authored hemisphere alone looks like
+				world->setAtmosphere(AtmosphereDesc());
+				SELFCHECK(renderFrames(renderSystem, 4),
+					"frames render with the authored ambient fill");
+				const std::string fillAuthoredShot =
+					outDir + "/selfcheck_ambient_authored_fill.png";
+				renderSystem->saveWindowContents(fillAuthoredShot);
+				float authoredRed = 0, authoredGreen = 0, authoredBlue = 0;
+				SELFCHECK(fillProbe(fillAuthoredShot, authoredRed,
+					authoredGreen, authoredBlue),
+					"the authored-fill probe decodes");
+				SELFCHECK(authoredRed > authoredGreen + 0.05f,
+					"the authored fill lights the wall red");
+
+				// DRIVEN: the procedural sky takes the fill over (fog off,
+				// so only the fill moves between the captures)
+				AtmosphereDesc fillProcedural =
+					AtmospherePreset::forSky(AtmospherePreset::SKY_DAY);
+				fillProcedural.fog = false;
+				fillProcedural.fogDensity = 0.0f;
+				world->setAtmosphere(fillProcedural);
+				SELFCHECK(renderFrames(renderSystem, 4),
+					"frames render with the procedural sky driving the "
+					"ambient fill");
+				const std::string fillDrivenShot =
+					outDir + "/selfcheck_ambient_driven_fill.png";
+				renderSystem->saveWindowContents(fillDrivenShot);
+				float drivenFillRed = 0, drivenFillGreen = 0, drivenFillBlue = 0;
+				SELFCHECK(fillProbe(fillDrivenShot, drivenFillRed,
+					drivenFillGreen, drivenFillBlue),
+					"the driven-fill probe decodes");
+				SELFCHECK(drivenFillBlue > drivenFillRed,
+					"the procedural sky's driven fill is sky-coloured "
+					"(blue over red), not the authored red");
+
+				// THE SHAPE: procedural -> flat colour, image lighting off.
+				// The sky the model describes is gone, so the authored fill
+				// must be back EXACTLY - the reference pixels, not the
+				// driven ones.
+				AtmosphereDesc fillColour = fillProcedural;
+				fillColour.skyType = AtmosphereSky::ST_COLOUR;
+				world->setAtmosphere(fillColour);
+				SELFCHECK(renderFrames(renderSystem, 4),
+					"frames render after the sky type changed to colour");
+				const std::string fillSwitchedShot =
+					outDir + "/selfcheck_ambient_type_switch.png";
+				renderSystem->saveWindowContents(fillSwitchedShot);
+				float switchedRed = 0, switchedGreen = 0, switchedBlue = 0;
+				SELFCHECK(fillProbe(fillSwitchedShot, switchedRed,
+					switchedGreen, switchedBlue),
+					"the sky-type-switch probe decodes");
+				std::printf("render_facade_selfcheck: ambient fill - "
+					"authored %.3f/%.3f/%.3f, driven %.3f/%.3f/%.3f, "
+					"after type switch %.3f/%.3f/%.3f\n",
+					authoredRed, authoredGreen, authoredBlue,
+					drivenFillRed, drivenFillGreen, drivenFillBlue,
+					switchedRed, switchedGreen, switchedBlue);
+				SELFCHECK(std::fabs(switchedRed - authoredRed) < 0.02f &&
+					std::fabs(switchedGreen - authoredGreen) < 0.02f &&
+					std::fabs(switchedBlue - authoredBlue) < 0.02f,
+					"a sky-type change off the procedural sky hands the "
+					"AUTHORED ambient fill back");
+
+				// leave the scene as the fog section below expects it
+				world->setAtmosphere(AtmosphereDesc());
+				fillSun.reset();
+				fillWall.reset();
+				fillNode.reset();
+				fillSunNode.reset();
+				SELFCHECK(renderFrames(renderSystem, 2),
+					"frames render after the ambient-fill probe was dropped");
+			}
 		}
 
 		// fog: a distant SUNLIT surface's reading shifts as fog thickens - the

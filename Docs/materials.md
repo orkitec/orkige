@@ -409,7 +409,12 @@ picture actually shows.
 The frames that hold this are the `render_facade_selfcheck` image-lighting leg
 on both flavors (the mirror plate under the debug cubemap authors no ambient
 and reads black with the reflection off) and the three gated `selfcheck_ibl_*`
-cross-flavor shots.
+cross-flavor shots. The handover itself — a live drive under the procedural
+sky, then a switch to `colour` with a NON-BLACK authored fill and image
+lighting off — is the same selfcheck's ambient-fill leg: a wall turned away
+from the sun reads the ambient term alone, so its pixel after the switch must
+be the authored-fill pixel and not the driven one. Its three
+`selfcheck_ambient_*` captures are gated cross-flavor shots.
 
 **Sun resolution on load** — the atmosphere links to the FIRST directional
 light and reads its node direction as the sun. A sun authored ahead of its
