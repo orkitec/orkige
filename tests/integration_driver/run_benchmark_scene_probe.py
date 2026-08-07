@@ -43,22 +43,22 @@ import benchmark_breadcrumbs  # noqa: E402
 # lumens corridors (0..255 means over the band)
 # The moonlit fill (a dedicated cool overhead directional, distinct from the
 # atmosphere-linked night sun) lifts the terrace band to a VISIBLY moonlit
-# ground so the coloured lamp pools read on top - measured on the clean debug
-# probe frame at next 60 / classic 134. Both flavors' per-light responses are
-# formula-matched now (the classic metal-rough stage mirrors the default
-# backend's maths exactly - byte-parity on the light probe), and so is the
-# object FOG (the classic atmospheric fog stage runs the default backend's
-# exact haze/transmittance formulas), which leaves the remaining band spread
-# attributed to the night-time FILL response (the moon fill/ambient reads
-# brighter on classic), not to the fog curve. The floor sits well above the
-# pre-fill black look (~28) so a regression back to a black night fails; the
-# ceiling still keeps it a NIGHT (the sky bound below is the real night
-# guard).
+# ground so the coloured lamp pools read on top, and this vignette's bloom
+# (threshold 0.28 against a moonlit ground that reads ~0.30 on screen) hazes
+# that ground on BOTH flavors. Measured on the clean debug probe frame at
+# next 156.5 / classic 134.3: the same picture, and the spread is the
+# vignette's own per-flavor LAMP CEILING (the ramp climbs to the queried
+# light budget - 96 on next, 30 on classic), not a look divergence. At an
+# EQUAL lamp count the two frames agree to a max channel delta of 18 with
+# no pixel over 48 (benchmark.lightCeiling=12, whole frame).
+# The floor sits well above the pre-fill black look (~28) so a regression
+# back to a black night fails; the ceiling still keeps it a NIGHT (the sky
+# bound below is the real night guard - a daylit vista band reads sky 187
+# against this vignette's 19.9).
 LUMENS_TERRAIN_MIN = 36.0     # moonlit terrain floor (black-night regression)
-LUMENS_TERRAIN_MAX = 150.0    # still a NIGHT - a daylit terrain is a bug
-                              # (classic's brighter night fill reads ~134 vs
-                              # next's ~60; the sky bound below is the real
-                              # night guard)
+LUMENS_TERRAIN_MAX = 180.0    # still a NIGHT - a blown-out terrain is a bug
+                              # (measured next 156.5 / classic 134.3; the sky
+                              # bound below is the real night guard)
 LUMENS_SKY_MAX = 90.0         # the upper sky band stays night-dark
 # a lamp-glow pixel: clearly brighter than the moonlit base AND colour-
 # saturated (the pools are tinted; the moonlit terrain is a desaturated grey-

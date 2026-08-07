@@ -1325,17 +1325,13 @@ namespace Orkige
 			{
 				bright->load();
 				// the knob is DISPLAY-referred (an authored 0.15 means
-				// "brighter than 0.15 as seen on screen") but the bright pass
-				// samples the sRGB scene RT LINEARLY - a dim-scene lamp pool
-				// reading 0.22 on screen is ~0.04 linear, so an unconverted
-				// threshold can never catch non-emissive content. Convert
-				// once here (gamma 2.2 approximates the sRGB curve; the
-				// residual luminance-order error is below the knob's
-				// authoring granularity).
-				const Ogre::Real linearThreshold = std::pow(
-					Ogre::Real(desc.threshold), Ogre::Real(2.2f));
+				// "brighter than 0.15 as seen on screen") and the bright pass
+				// reads a DISPLAY-space source - every off-screen colour target
+				// on this road is non-sRGB by the colour-parity rule (@see
+				// recreateWindowWorkspace) - so the number travels verbatim,
+				// exactly as the other flavor pushes it onto the same shader.
 				bright->getTechnique(0)->getPass(0)->getFragmentProgramParameters()
-					->setNamedConstant("Threshold", linearThreshold);
+					->setNamedConstant("Threshold", Ogre::Real(desc.threshold));
 			}
 			if(Ogre::MaterialPtr combine =
 				materials.getByName("Orkige/Bloom/Combine"))
@@ -3389,12 +3385,24 @@ namespace Orkige
 				static_cast<float>(std::max(tier.downsampleFactor, 1));
 			const int blurPasses = std::max(tier.blurPasses, 1);
 			// off-screen textures: full-res scene (with depth), two downsampled
-			// ping-pong bloom buffers (no depth)
+			// ping-pong bloom buffers (no depth). NON-sRGB, like every other
+			// off-screen colour target on this road (@see the grade branch and
+			// the refraction branch): the pipeline is a DISPLAY-space
+			// passthrough down to the non-sRGB swapchain, and the format
+			// decides where the lit surfaces' display transfer happens.
+			// HlmsPbs emits its own linear->display encode exactly when the
+			// colour target is NOT sRGB; an sRGB target makes it write LINEAR
+			// and lean on the hardware encode, which the combine quad then
+			// undoes when it SAMPLES that target (sRGB read = decode) and
+			// writes straight to the non-sRGB window - the transfer is lost
+			// and every lit surface displays its linear value (a night scene
+			// reads ~3x darker than the same frame with bloom off, while the
+			// sky, which encodes in its own shader either way, does not move).
 			Ogre::TextureDefinitionBase::TextureDefinition* sceneTex =
 				nodeDefinition->addTextureDefinition("SceneRT");
 			sceneTex->widthFactor = 1.0f;
 			sceneTex->heightFactor = 1.0f;
-			sceneTex->format = Ogre::PFG_RGBA8_UNORM_SRGB;
+			sceneTex->format = Ogre::PFG_RGBA8_UNORM;
 			nodeDefinition->addRenderTextureView("SceneRT")
 				->setForTextureDefinition("SceneRT", sceneTex);
 			for(char const * bloomBuf : { "BloomA", "BloomB" })
@@ -3403,7 +3411,7 @@ namespace Orkige
 					nodeDefinition->addTextureDefinition(bloomBuf);
 				tex->widthFactor = downFactor;
 				tex->heightFactor = downFactor;
-				tex->format = Ogre::PFG_RGBA8_UNORM_SRGB;
+				tex->format = Ogre::PFG_RGBA8_UNORM;
 				tex->depthBufferId = 0;	// a blurred quad target needs no depth
 				nodeDefinition->addRenderTextureView(bloomBuf)
 					->setForTextureDefinition(bloomBuf, tex);

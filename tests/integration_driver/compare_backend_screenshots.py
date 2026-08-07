@@ -450,15 +450,12 @@ FEATURE_SHOTS = {
     "selfcheck_bloom_off_restored.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
         "mean 0.00, outliers 0.00%, region 0.0"),
-    # The bloom chain's intermediates are sRGB on this flavor while the
-    # graded path's are not, and that is deliberate: the bright-pass
-    # threshold is calibrated against LINEAR input, which the sRGB targets
-    # supply by decoding on sample. Handing it display-space colour instead
-    # puts most of a lamp-lit frame over the threshold and the glow swallows
-    # the scene (projects/benchmark scenes/lumens.oscene is the case that
-    # shows it; player_benchmark_lumens_probe gates it). The residual below
-    # is the chain's own filtering, and no pixel clears the outlier
-    # threshold in either shot.
+    # Every off-screen colour target the bloom chain uses is NON-sRGB on
+    # both flavors, like the graded and refraction paths: the pipeline is a
+    # DISPLAY-space passthrough down to the non-sRGB swapchain, so the
+    # authored (display-referred) bright-pass threshold travels verbatim to
+    # the one shader both flavors run. The residual below is the chain's own
+    # filtering, and no pixel clears the outlier threshold in either shot.
     "selfcheck_bloom_on.png": ShotCorridor(
         6.0, 0.02, 6.0, True,
         "mean 0.28, outliers 0.00%, region centre 0.8"),
