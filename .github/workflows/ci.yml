@@ -661,17 +661,17 @@ jobs:
       # already uploaded their whole render_facade directory for the pixel
       # gate above, and this reads the same two trees.
       #
-      # --report-only DELIBERATELY: the per-shot corridors were measured on
-      # the developer pair, and this pair is a different software rasterizer
-      # on each side. The numbers land in the job log (and the divergent
-      # pairs in the uploaded artifact) where a corridor for THIS pair can be
-      # measured from them; a corridor carried over unmeasured would block
-      # merges rather than catch bugs. A missing or empty capture still
-      # FAILS here - report-only silences a verdict, never silence itself.
-      - name: The feature screenshots, measured across flavors (report-only)
+      # GATING on this pair too: measured on THIS pair's own artifacts (the
+      # llvmpipe/lavapipe run of the converged tree), every shot sits inside
+      # the house corridor - the worst reads mean 1.15 / region 3.6 against
+      # 6.0/2%/6.0 - so the developer-pair corridors hold here without a
+      # pair-specific table. A corridor that needs widening for this pair is
+      # widened with the measurement written beside it, never loosened until
+      # green. A missing or empty capture FAILS either way.
+      - name: The feature screenshots gate across flavors
         run: |
           python3 tests/integration_driver/compare_backend_screenshots.py \
-            --feature-sweep --report-only \
+            --feature-sweep \
             --classic-shots parity/classic/render_facade \
             --next-shots parity/next/render_facade \
             --adjudication-dir parity/feature-adjudication
