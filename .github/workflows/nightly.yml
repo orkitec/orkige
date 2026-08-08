@@ -523,11 +523,20 @@ jobs:
           # thin or empty check set can never read green (the matrix carries
           # ~16 verdicts; the floor sits safely below that and far above
           # zero). gh + jq ship on every hosted runner.
-          sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha') \
-            || { echo "::warning::could not resolve main"; echo "green=false" >> "$GITHUB_OUTPUT"; exit 0; }
-          gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs?per_page=100" --paginate \
+          # a once-a-day gate must not lose a night to one API blip: each
+          # query gets three attempts, 30s apart, before the fail-closed skip
+          api_retry() {
+            for attempt in 1 2 3; do
+              if gh api "$@"; then return 0; fi
+              [ "$attempt" -lt 3 ] && { echo "query attempt ${attempt} failed - retrying in 30s" >&2; sleep 30; }
+            done
+            return 1
+          }
+          sha=$(api_retry "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha') \
+            || { echo "::warning::could not resolve main after three attempts - skipping the binaries this night; the next green night builds the backlog"; echo "green=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          api_retry "repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs?per_page=100" --paginate \
             --jq '.check_runs[] | "\(.conclusion)\t\(.name)"' > checks.txt \
-            || { echo "::warning::could not read the check runs"; echo "green=false" >> "$GITHUB_OUTPUT"; exit 0; }
+            || { echo "::warning::could not read the check runs after three attempts - skipping the binaries this night; the next green night builds the backlog"; echo "green=false" >> "$GITHUB_OUTPUT"; exit 0; }
           bad=$(grep -cE '^(failure|cancelled|timed_out|action_required)\t' checks.txt || true)
           good=$(grep -cE '^success\t' checks.txt || true)
           floor=12
