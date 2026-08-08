@@ -23,6 +23,7 @@
 #include "engine_render/RenderMaterialCache.h"	// the create-or-update memo
 #include "engine_render/RenderWaterTuning.h"	// the live water.* look tier
 #include "engine_graphic/Engine.h"
+#include <core_util/PngWriter.h>	// the engine's own image ENCODE
 #include <core_util/SkyEnvMap.h>
 #include "engine_filesystem/PakMount.h"
 #include <core_debug/CVarManager.h>	// the r.planarReflection gate
@@ -782,7 +783,28 @@ namespace Orkige
 		window->copyContentsToMemory(pixels, pixels,
 			Ogre::RenderTarget::FB_BACK);
 		window->swapBuffers();
+#ifdef __EMSCRIPTEN__
+		// the browser closure carries no image-ENCODE library (the codec that
+		// reads a png there cannot write one), so encode the readback with the
+		// engine's own PNG writer - the same encoder the other render flavor
+		// uses for exactly this reason. The pixels are the readback's; only the
+		// container is ours.
+		std::vector<unsigned char> rgba(
+			Ogre::PixelUtil::getMemorySize(pixels.getWidth(),
+				pixels.getHeight(), 1, Ogre::PF_BYTE_RGBA));
+		Ogre::PixelBox converted(pixels.getWidth(), pixels.getHeight(), 1,
+			Ogre::PF_BYTE_RGBA, rgba.data());
+		Ogre::PixelUtil::bulkPixelConversion(pixels, converted);
+		if(!PngWriter::writeFile(fileName, rgba.data(),
+			static_cast<int>(pixels.getWidth()),
+			static_cast<int>(pixels.getHeight())))
+		{
+			Ogre::LogManager::getSingleton().logMessage(
+				"Orkige classic backend: writing '" + fileName + "' failed");
+		}
+#else
 		image.save(fileName);
+#endif
 	}
 	//---------------------------------------------------------
 	optr<RenderTexture> RenderSystem::createRenderTexture(String const & name,

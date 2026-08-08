@@ -27,8 +27,11 @@
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <limits>
 #include <sstream>
+#include <thread>
+#include <vector>
 
 //! parse exactly count whitespace-separated floats; false on any junk
 bool parsePlayFloats(std::string const& text, float* out, int count)
@@ -92,6 +95,8 @@ void clearRemoteState(PlaySession& session)
 	session.lastScreenshotError.clear();
 	session.lastScreenshotOk = false;
 	session.screenshotSeq = 0;
+	session.screenshotChunks.reset();
+	session.deferredMessages.clear();
 	session.recordingActive = false;
 	session.lastRecordPath.clear();
 	session.lastRecordError.clear();
@@ -1524,7 +1529,136 @@ void requestRemoteScreenshot(PlaySession& session, std::string const& path)
 	}
 	Orkige::DebugMessage shot(Protocol::MSG_SCREENSHOT);
 	shot.set(Protocol::FIELD_PATH, path);
+	// a stale file at the target must never be mistaken for this capture: a
+	// reader that finds one after a FAILED request would report the wrong
+	// frame. Regular files only - a path that is anything else is left alone
+	// and fails honestly when the capture tries to write it.
+	std::error_code removeIgnored;
+	if (std::filesystem::is_regular_file(path, removeIgnored))
+	{
+		std::filesystem::remove(path, removeIgnored);
+	}
+	session.screenshotChunks.reset();
 	session.client.send(shot);
+}
+
+//! @brief record ONE screenshot answer (a path confirmation, or a chunk of the
+//! image itself) into the session's screenshot state
+bool applyRemoteScreenshotMessage(PlaySession& session, EditorConsole& console,
+	Orkige::DebugMessage const& message)
+{
+	auto confirm = [&session, &console](std::string const& path, bool ok,
+		std::string const& error)
+	{
+		session.lastScreenshotPath = path;
+		session.lastScreenshotOk = ok;
+		session.lastScreenshotError = error;
+		++session.screenshotSeq;
+		if (ok)
+		{
+			console.addLine(ConsoleLevel::Info,
+				"[remote] screenshot saved: " + path);
+		}
+		else
+		{
+			console.addLine(ConsoleLevel::Error,
+				"[remote] screenshot FAILED: " + error);
+		}
+	};
+	if (message.type == Protocol::MSG_SCREENSHOT_SAVED)
+	{
+		// the player wrote the file on a filesystem this editor shares
+		session.screenshotChunks.reset();
+		confirm(message.get(Protocol::FIELD_PATH),
+			message.get(Protocol::FIELD_VALUE) == "1",
+			message.get(Protocol::FIELD_MESSAGE));
+		return true;
+	}
+	if (message.type != Protocol::MSG_SCREENSHOT_DATA)
+	{
+		return false;
+	}
+	// the DATA road: the player's capture can never reach this disk, so the
+	// image travels in numbered chunks the editor reassembles and writes here
+	const std::string path = message.get(Protocol::FIELD_PATH);
+	const unsigned int seq = static_cast<unsigned int>(
+		std::strtoul(message.get(Protocol::FIELD_SEQ).c_str(), nullptr, 10));
+	const unsigned int total = static_cast<unsigned int>(
+		std::strtoul(message.get(Protocol::FIELD_TOTAL).c_str(), nullptr, 10));
+	Orkige::String assembleError;
+	const Orkige::ScreenshotChunkAssembler::Result result =
+		session.screenshotChunks.addChunk(path, seq, total,
+			message.get(Protocol::FIELD_DATA), assembleError);
+	if (result == Orkige::ScreenshotChunkAssembler::Result::Failed)
+	{
+		// fail closed: a damaged sequence is reported, never written out
+		confirm(path, false, assembleError);
+		return true;
+	}
+	if (result != Orkige::ScreenshotChunkAssembler::Result::Complete)
+	{
+		return true;
+	}
+	const std::vector<unsigned char>& bytes = session.screenshotChunks.bytes();
+	const std::string outPath = session.screenshotChunks.path();
+	std::error_code directoryError;
+	const std::filesystem::path parent =
+		std::filesystem::path(outPath).parent_path();
+	if (!parent.empty())
+	{
+		std::filesystem::create_directories(parent, directoryError);
+	}
+	std::ofstream out(outPath, std::ios::binary | std::ios::trunc);
+	if (!out ||
+		!out.write(reinterpret_cast<const char*>(bytes.data()),
+			static_cast<std::streamsize>(bytes.size())))
+	{
+		session.screenshotChunks.reset();
+		confirm(outPath, false,
+			"the transferred frame could not be written to '" + outPath + "'");
+		return true;
+	}
+	out.close();
+	session.screenshotChunks.reset();
+	confirm(outPath, true, std::string());
+	return true;
+}
+
+//! @brief pump the play link until a fresh screenshot answer lands (or the
+//! budget runs out), parking every other message for updatePlaySession
+bool waitForRemoteScreenshot(PlaySession& session, EditorConsole& console,
+	unsigned int prevSeq, unsigned int budgetMs)
+{
+	if (!session.client.isConnected())
+	{
+		return false;
+	}
+	const std::chrono::steady_clock::time_point deadline =
+		std::chrono::steady_clock::now() + std::chrono::milliseconds(budgetMs);
+	while (session.screenshotSeq == prevSeq &&
+		std::chrono::steady_clock::now() < deadline)
+	{
+		session.client.update();
+		Orkige::DebugMessage message;
+		while (session.client.receive(message))
+		{
+			if (!applyRemoteScreenshotMessage(session, console, message))
+			{
+				// not ours: hand it back in arrival order, unrouted
+				session.deferredMessages.push_back(message);
+			}
+		}
+		if (session.screenshotSeq != prevSeq)
+		{
+			break;
+		}
+		if (!session.client.isConnected())
+		{
+			break;
+		}
+		std::this_thread::sleep_for(std::chrono::milliseconds(4));
+	}
+	return session.screenshotSeq != prevSeq;
 }
 
 //! replay one input gesture in the running game (drive GAMEPLAY)
@@ -2060,7 +2194,19 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 	}
 	session.client.update();
 	Orkige::DebugMessage message;
-	while (session.client.receive(message))
+	// messages a bounded in-verb wait pulled off the socket without routing
+	// come FIRST, so the stream keeps its arrival order
+	auto nextMessage = [&session](Orkige::DebugMessage& out) -> bool
+	{
+		if (!session.deferredMessages.empty())
+		{
+			out = session.deferredMessages.front();
+			session.deferredMessages.pop_front();
+			return true;
+		}
+		return session.client.receive(out);
+	};
+	while (nextMessage(message))
 	{
 		if (message.type == Protocol::MSG_HELLO)
 		{
@@ -2324,26 +2470,13 @@ void updatePlaySession(EditorState& state, PlaySession& session,
 			session.debugLocalsPending.erase(key);
 			++session.debugLocalsSeq;
 		}
-		else if (message.type == Protocol::MSG_SCREENSHOT_SAVED)
+		else if (message.type == Protocol::MSG_SCREENSHOT_SAVED ||
+			message.type == Protocol::MSG_SCREENSHOT_DATA)
 		{
-			// the running game confirmed (or failed) a requested capture; record
-			// it so the toolbar and the MCP screenshot_game poller see the fresh
-			// result
-			session.lastScreenshotPath = message.get(Protocol::FIELD_PATH);
-			session.lastScreenshotOk =
-				message.get(Protocol::FIELD_VALUE) == "1";
-			session.lastScreenshotError = message.get(Protocol::FIELD_MESSAGE);
-			++session.screenshotSeq;
-			if (session.lastScreenshotOk)
-			{
-				console.addLine(ConsoleLevel::Info,
-					"[remote] screenshot saved: " + session.lastScreenshotPath);
-			}
-			else
-			{
-				console.addLine(ConsoleLevel::Error,
-					"[remote] screenshot FAILED: " + session.lastScreenshotError);
-			}
+			// the running game confirmed (or failed) a requested capture, by
+			// path or by sending the image itself; record the outcome so the
+			// toolbar and the MCP screenshot_game poller see the fresh result
+			applyRemoteScreenshotMessage(session, console, message);
 		}
 		else if (message.type == Protocol::MSG_INPUT_APPLIED)
 		{

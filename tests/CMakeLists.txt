@@ -2147,9 +2147,12 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     # session over the serve port's WebSocket upgrade - and drives the whole
     # loop over the live link: get_state reaches "connected"/playing, a
     # [remote] log line lands in console_tail, runtime_hierarchy lists the
-    # game's objects, pause/resume round-trips, screenshot_game and
-    # reload_script refuse honestly (a page's in-memory files never reach the
-    # editor's disk; the page runs its packaged snapshot), and stop quits the
+    # game's objects, pause/resume round-trips, screenshot_game brings the
+    # LIVE page's frame back (its capture can never reach this disk, so the
+    # image itself rides the debug link in chunks - the reply carries the
+    # inline PNG and the decoded file holds a rendered, non-uniform frame),
+    # reload_script refuses honestly (the page runs its packaged snapshot),
+    # and stop quits the
     # page's game over the link (the closing socket confirms it) while
     # serving continues. SKIPPED (exit 77) without the wasm player OR without
     # a headless browser (discovery mirrors tests/web/run_export_web.py;

@@ -20,6 +20,7 @@
 // See EditorControlServer.h for the design.
 #include "EditorControlServer.h"
 #include "EditorApp.h"
+#include "EditorImageDecode.h"	// decode a captured PNG in the self-test legs
 #include "EditorScriptHost.h"
 #include "EditorTestSession.h"	// the ONE seam the project-test verbs share
 								// with the Tests panel
@@ -44,6 +45,7 @@
 #include <core_project/AssetDatabase.h>
 #include <core_project/Project.h>
 #include <core_debug/Breadcrumbs.h>
+#include <core_util/Base64.h>
 #include <core_util/ConstantTimeCompare.h>
 #include <core_util/optr.h>
 #include <core_util/PlatformUtil.h>
@@ -716,57 +718,32 @@ namespace Orkige
 		//---------------------------------------------------------
 		//--- inline-image support (MCP image content blocks) -----
 		//---------------------------------------------------------
-		//! standard base64 (RFC 4648) of a raw byte buffer. Hand-rolled to keep the
-		//! server dependency-free - the only consumer is the inline PNG block below.
+		//! standard base64 (RFC 4648) of a raw byte buffer - the ONE codec
+		//! (core_util/Base64.h), shared with the chunked screenshot road
 		std::string base64Encode(const unsigned char* data, size_t length)
 		{
-			static const char kTable[] =
-				"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-			std::string out;
-			out.reserve(((length + 2) / 3) * 4);
-			size_t i = 0;
-			for (; i + 3 <= length; i += 3)
-			{
-				const unsigned int n = (static_cast<unsigned int>(data[i]) << 16) |
-					(static_cast<unsigned int>(data[i + 1]) << 8) |
-					static_cast<unsigned int>(data[i + 2]);
-				out.push_back(kTable[(n >> 18) & 0x3F]);
-				out.push_back(kTable[(n >> 12) & 0x3F]);
-				out.push_back(kTable[(n >> 6) & 0x3F]);
-				out.push_back(kTable[n & 0x3F]);
-			}
-			const size_t rem = length - i;
-			if (rem == 1)
-			{
-				const unsigned int n = static_cast<unsigned int>(data[i]) << 16;
-				out.push_back(kTable[(n >> 18) & 0x3F]);
-				out.push_back(kTable[(n >> 12) & 0x3F]);
-				out.push_back('=');
-				out.push_back('=');
-			}
-			else if (rem == 2)
-			{
-				const unsigned int n = (static_cast<unsigned int>(data[i]) << 16) |
-					(static_cast<unsigned int>(data[i + 1]) << 8);
-				out.push_back(kTable[(n >> 18) & 0x3F]);
-				out.push_back(kTable[(n >> 12) & 0x3F]);
-				out.push_back(kTable[(n >> 6) & 0x3F]);
-				out.push_back('=');
-			}
-			return out;
+			return Orkige::Base64::encode(data, length);
 		}
+		//---------------------------------------------------------
 		//! largest PNG we inline into a tool result before it hurts the transport:
 		//! above this we skip the block and note "inline_skipped" (the path stays).
 		const size_t kMaxInlineImageBytes = 4u * 1024u * 1024u;	// 4 MiB
-		//! the PNG path a synchronously-capturing verb wrote, or "" when the verb
-		//! has no image at reply time (screenshot_game is async - see the docs).
-		//! For a preview_ui sweep only the FIRST context's image is inlined (the
-		//! reply has no scalar "path", so fall back to the head of "paths").
+		//! @brief how long screenshot_game waits at the verb for the running
+		//! game's answer before falling back to its async contract. One frame
+		//! plus the transfer is all a live player needs; the ceiling keeps a
+		//! wedged or very slow session from holding the editor's frame.
+		const unsigned int SCREENSHOT_WAIT_MS = 3000u;
+		//! the PNG path a verb has ON THIS DISK at reply time, or "" when it has
+		//! no image yet (a screenshot_game whose answer did not arrive inside the
+		//! wait - the file does not exist and no block is built). For a
+		//! preview_ui sweep only the FIRST context's image is inlined (the reply
+		//! has no scalar "path", so fall back to the head of "paths").
 		std::string inlineImagePathForVerb(String const& verb,
 			DebugMessage const& reply)
 		{
 			if (verb != "screenshot" && verb != "preview_ui" &&
-				verb != "preview_game" && verb != "preview_animation")
+				verb != "preview_game" && verb != "preview_animation" &&
+				verb != "screenshot_game")
 			{
 				return std::string();
 			}
@@ -1582,14 +1559,18 @@ namespace Orkige
 				  {} },
 				{ "screenshot_game",
 				  "Screenshot the RUNNING game's next rendered frame to 'path' "
-				  "(desktop play only; the path is on the player's filesystem, "
-				  "shared with the editor). ASYNC: returns accepted + "
-				  "prev_screenshot_seq; poll get_state until screenshot_seq "
-				  "exceeds it, then screenshot_path/screenshot_ok carry the "
-				  "result. The file does not exist yet at this reply, so (unlike "
-				  "screenshot/preview_ui/preview_animation) this verb cannot "
-				  "inline the image - read the confirmed path off the filesystem. "
-				  "Errors when no player is connected.",
+				  "(a path on the EDITOR's filesystem). Works for a desktop "
+				  "play session AND for Play in Browser: a browser page's "
+				  "capture can never reach this disk, so the player sends the "
+				  "image itself over the debug link in chunks and the editor "
+				  "writes it at 'path'. Normally the frame is back inside this "
+				  "reply - screenshot_ok='1' and the PNG rides along as an "
+				  "inline image content block. If the player needs longer the "
+				  "reply carries pending='1' + prev_screenshot_seq instead: poll "
+				  "get_state until screenshot_seq exceeds it, then "
+				  "screenshot_path/screenshot_ok carry the result. Refused for a "
+				  "simulator or phone session (their captures live on the "
+				  "device). Errors when no player is connected.",
 				  { { "path", "string", "output PNG path", true } } },
 				{ "record_trace",
 				  "Record a TEMPORAL TRACE of the RUNNING game to a .jsonl file "
@@ -1826,8 +1807,13 @@ namespace Orkige
 				  "the DEFAULT window camera the player boots with (preview mirrors the "
 				  "game), with 'default_camera':'true' and an empty 'camera'. The "
 				  "screenshot is inlined as an image content block unless "
-				  "inline=false or it exceeds 4 MiB. Does not disturb the human's "
-				  "Game Preview tab.",
+				  "inline=false or it exceeds 4 MiB. 'play_mode' and "
+				  "'mirroring_play' say what the frame actually shows: while a "
+				  "play session streams its motion into the editor world "
+				  "('mirroring_play':'true') these are the RUNNING game's poses, "
+				  "not the authored ones - so a live screenshot_game and this "
+				  "shot are two views of the same moment, not authored vs live. "
+				  "Does not disturb the human's Game Preview tab.",
 				  { { "preset", "string",
 				      "device preset token (e.g. 'iphone_notch'); omit to use "
 				      "explicit width/height", false },
@@ -4794,6 +4780,15 @@ namespace Orkige
 				okMsg.set("camera", trackedCamera);
 				okMsg.set("default_camera", usedDefault ? "true" : "false");
 				okMsg.set("overlay", overlay);
+				// HONESTY: while a play session streams its motion into the
+				// editor world, this frame shows the RUNNING game's poses, not
+				// the authored ones - an agent comparing it against a live
+				// screenshot_game has to know which of the two it holds.
+				const bool mirroring = context.play != nullptr &&
+					context.play->mirror.active();
+				okMsg.set("mirroring_play", mirroring ? "true" : "false");
+				okMsg.set("play_mode", context.play != nullptr
+					? playSessionModeName(*context.play) : std::string("edit"));
 				this->sendOk(req, okMsg);
 				return;
 			}
@@ -5385,11 +5380,12 @@ namespace Orkige
 				this->sendErr(req, "no live player - start Play first");
 				return;
 			}
-			if (play.onSimulator || play.onAndroid || play.onBrowser)
+			if (play.onSimulator || play.onAndroid)
 			{
-				this->sendErr(req, "screenshot_game is desktop-play only (the "
-					"path lives on the player's filesystem - a browser page's "
-					"in-memory filesystem never reaches the editor's disk)");
+				this->sendErr(req, "screenshot_game cannot reach a device "
+					"session's filesystem (a simulator or a phone writes the "
+					"capture on its own device, where this editor cannot read "
+					"it)");
 				return;
 			}
 			const String& path = request.get("path");
@@ -5398,16 +5394,40 @@ namespace Orkige
 				this->sendErr(req, "screenshot_game needs a 'path'");
 				return;
 			}
-			// async: the player captures its NEXT frame and answers with
-			// screenshot_saved; poll get_state (screenshot_path/screenshot_ok/
-			// screenshot_seq) for the confirmation. Report the request accepted
-			// plus the sequence value BEFORE the request so a poller knows a
-			// fresh confirmation is one with a higher screenshot_seq.
+			// the player captures its NEXT frame and answers over whichever
+			// road its filesystem allows (the written path, or the image bytes
+			// from a browser page). Report the sequence value BEFORE the
+			// request so a poller knows a fresh confirmation is one with a
+			// higher screenshot_seq, then wait one bounded moment for the
+			// answer so the reply can carry the frame as an inline image.
 			DebugMessage ok(MSG_OK);
 			ok.set("accepted", "1");
 			ok.set("path", path);
-			ok.set("prev_screenshot_seq", std::to_string(play.screenshotSeq));
+			const unsigned int previousSeq = play.screenshotSeq;
+			ok.set("prev_screenshot_seq", std::to_string(previousSeq));
 			requestRemoteScreenshot(play, path);
+			if (context.console != nullptr &&
+				waitForRemoteScreenshot(play, *context.console, previousSeq,
+					SCREENSHOT_WAIT_MS))
+			{
+				ok.set("screenshot_seq", std::to_string(play.screenshotSeq));
+				ok.set("screenshot_ok", play.lastScreenshotOk ? "1" : "0");
+				if (!play.lastScreenshotOk)
+				{
+					this->sendErr(req, "screenshot_game failed: " +
+						play.lastScreenshotError);
+					return;
+				}
+				// the file is on THIS disk now (either the player wrote it or
+				// the editor reassembled it), so the reply inlines the frame
+				ok.set("path", play.lastScreenshotPath);
+			}
+			else
+			{
+				// still in flight: the historical async contract stands - poll
+				// get_state until screenshot_seq exceeds prev_screenshot_seq
+				ok.set("pending", "1");
+			}
 			this->sendOk(req, ok);
 			return;
 		}
@@ -7809,30 +7829,8 @@ namespace Orkige
 		// a leg can assert an inlined PNG really carries the PNG signature
 		auto base64Decode = [](std::string const& in) -> std::vector<unsigned char>
 		{
-			auto sextet = [](char c) -> int
-			{
-				if (c >= 'A' && c <= 'Z') return c - 'A';
-				if (c >= 'a' && c <= 'z') return c - 'a' + 26;
-				if (c >= '0' && c <= '9') return c - '0' + 52;
-				if (c == '+') return 62;
-				if (c == '/') return 63;
-				return -1;
-			};
 			std::vector<unsigned char> out;
-			int bits = 0, acc = 0;
-			for (char c : in)
-			{
-				if (c == '=') break;
-				const int v = sextet(c);
-				if (v < 0) continue;
-				acc = (acc << 6) | v;
-				bits += 6;
-				if (bits >= 8)
-				{
-					bits -= 8;
-					out.push_back(static_cast<unsigned char>((acc >> bits) & 0xFF));
-				}
-			}
+			Orkige::Base64::decode(in, out);	// the ONE codec; garbage decodes to nothing
 			return out;
 		};
 
@@ -8545,28 +8543,94 @@ namespace Orkige
 						"resumed");
 					return;
 				}
-				// (B5) the honest degradations: a browser page's files never
-				// reach the editor's disk, and the page runs its packaged
-				// snapshot - both verbs must refuse, not pretend
+				// (B5) capture the LIVE browser frame. The page's own
+				// filesystem never reaches this disk, so the image itself
+				// rides the debug link in chunks and the editor writes it -
+				// which has to produce a real, rendered PNG here.
 				{
+					const std::string browserShot =
+						(std::filesystem::path(this->mScreenshotPath)
+							.parent_path() / "orkige_browser_frame.png")
+							.string();
+					std::error_code shotIgnored;
+					std::filesystem::remove(browserShot, shotIgnored);
 					JsonValue shotArgs = JsonValue::object();
-					shotArgs.set("path", JsonValue(this->mScreenshotPath));
-					if (!callTool("screenshot_game", shotArgs, true,
-						structured, isError) || !isError)
+					shotArgs.set("path", JsonValue(browserShot));
+					JsonValue shotResult;
+					if (!callToolFull("screenshot_game", shotArgs, true,
+						shotResult) ||
+						shotResult.get("isError").asBool(true))
+					{
+						// name what the verb said - a refusal here is the
+						// interesting half of the failure
+						String why;
+						JsonValue const& blocks = shotResult.get("content");
+						if (blocks.size() > 0)
+						{
+							why = blocks.at(0).get("text").asString();
+						}
+						reapBrowser();
+						finish(false, "browser session test: screenshot_game "
+							"must capture a browser session's frame (" + why +
+							")");
+						return;
+					}
+					// the frame comes back INSIDE the reply as an image block:
+					// an agent that cannot read this disk sees only that
+					const std::vector<unsigned char> inlined =
+						firstInlineImage(shotResult);
+					if (inlined.size() < 8 || inlined[0] != 0x89 ||
+						inlined[1] != 'P' || inlined[2] != 'N' ||
+						inlined[3] != 'G')
 					{
 						reapBrowser();
 						finish(false, "browser session test: screenshot_game "
-							"must refuse a browser session honestly");
+							"returned no inline PNG for the browser frame");
 						return;
 					}
-					if (!callTool("reload_script", JsonValue::object(), true,
-						structured, isError) || !isError)
+					// and it is on this disk, decodable, and a RENDERED frame
+					// (a blank or failed capture is one flat colour)
+					std::vector<unsigned char> rgba;
+					int shotWidth = 0;
+					int shotHeight = 0;
+					if (!OrkigeEditor::decodeImageRgba(browserShot, rgba,
+						shotWidth, shotHeight) || shotWidth <= 0 ||
+						shotHeight <= 0)
 					{
 						reapBrowser();
-						finish(false, "browser session test: reload_script "
-							"must refuse a browser session honestly");
+						finish(false, "browser session test: the transferred "
+							"browser frame at '" + browserShot + "' is not a "
+							"readable PNG");
 						return;
 					}
+					bool varied = false;
+					for (size_t i = 4; i + 3 < rgba.size() && !varied; i += 4)
+					{
+						varied = rgba[i] != rgba[0] ||
+							rgba[i + 1] != rgba[1] ||
+							rgba[i + 2] != rgba[2];
+					}
+					if (!varied)
+					{
+						reapBrowser();
+						finish(false, "browser session test: the transferred "
+							"browser frame is a uniform image (nothing was "
+							"rendered)");
+						return;
+					}
+					SDL_Log("orkige_editor: browser session test - captured "
+						"the live browser frame (%dx%d, %zu inline bytes)",
+						shotWidth, shotHeight, inlined.size());
+				}
+				// the honest degradation that remains: the page runs its
+				// packaged snapshot, so a script hot-reload must refuse
+				if (!callTool("reload_script", JsonValue::object(), true,
+					structured, isError) || !isError)
+				{
+					reapBrowser();
+					finish(false, "browser session test: reload_script "
+						"must refuse a browser session honestly");
+					return;
 				}
 				// (B6) stop: MSG_QUIT rides the link, the page's game loop
 				// exits and the closing socket confirms the stop; the serve
@@ -8607,8 +8671,9 @@ namespace Orkige
 				}
 				reapBrowser();
 				SDL_Log("orkige_editor: browser session test - live link, "
-					"remote logs, hierarchy, pause/resume, honest "
-					"degradations and stop all verified");
+					"remote logs, hierarchy, pause/resume, the transferred "
+					"frame capture, the honest degradation and stop all "
+					"verified");
 				finish(true, "");
 				return;
 			}

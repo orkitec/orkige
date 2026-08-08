@@ -266,6 +266,10 @@ namespace Orkige
 		//! renderer-agnostic protocol code on purpose)
 		bool			mHasPendingScreenshot = false;
 		String			mPendingScreenshotPath;
+		//! the path the EDITOR asked for, echoed in the answer - the same
+		//! string on the path road, and the only place it survives on the DATA
+		//! road (where the capture goes to a runtime-local scratch file)
+		String			mScreenshotReplyPath;
 		//! a MSG_RECORD_START trace is active: the main loop samples the world
 		//! every Nth frame (positions/velocities/flags) and this class records
 		//! interleaved events (contacts, scene loads, script errors, warnings)
@@ -362,17 +366,45 @@ namespace Orkige
 		bool consumePendingStep();
 
 		//! @brief a queued screenshot request? On true, outPath receives the
-		//! editor-requested capture path and the request is consumed (at most
-		//! once per MSG_SCREENSHOT). The player's main loop performs the actual
-		//! window capture (renderer containment keeps the render call out of
-		//! this class) AFTER rendering the frame, then reports the outcome with
-		//! notifyScreenshotSaved.
+		//! path to CAPTURE TO and the request is consumed (at most once per
+		//! MSG_SCREENSHOT). The player's main loop performs the actual window
+		//! capture (renderer containment keeps the render call out of this
+		//! class) AFTER rendering the frame, then reports the outcome with
+		//! notifyScreenshotCaptured.
+		//! @remarks Normally that is the editor-requested path itself. On the
+		//! DATA road (@see screenshotAnswersWithData) it is a runtime-LOCAL
+		//! scratch file instead: the requested path names a directory on the
+		//! editor's disk which this runtime's filesystem does not have, so
+		//! capturing to it would simply write nothing. The requested path is
+		//! remembered and echoed in the answer.
 		bool consumePendingScreenshot(String & outPath);
+		//! @brief answer a consumed screenshot request, over whichever road THIS
+		//! runtime's answer takes: a player that shares its filesystem with the
+		//! editor echoes the written path (MSG_SCREENSHOT_SAVED), and one whose
+		//! captures can never reach the editor's disk sends the image bytes
+		//! themselves (@see screenshotAnswersWithData). A FAILED capture always
+		//! takes the path road, so failure has one shape on the wire. This is
+		//! the call the player's main loop makes after capturing;
+		//! @p capturePath is what consumePendingScreenshot handed it, and the
+		//! answer always echoes the path the EDITOR asked for.
+		void notifyScreenshotCaptured(String const & capturePath, bool ok,
+			String const & error = String());
+		//! @brief does this runtime answer with the image BYTES instead of the
+		//! written path? True on the browser player alone: its capture lands in
+		//! the page's in-memory filesystem, which no editor can read.
+		static bool screenshotAnswersWithData();
 		//! @brief answer a consumed screenshot request: sends MSG_SCREENSHOT_SAVED
 		//! back to the editor (path echoed, ok flag, error text on failure). A
 		//! no-op when the link has no client.
 		void notifyScreenshotSaved(String const & path, bool ok,
 			String const & error = String());
+		//! @brief answer a consumed screenshot request with the captured PNG's
+		//! bytes: a numbered MSG_SCREENSHOT_DATA sequence the editor reassembles
+		//! and writes to ITS copy of @p path. A no-op when the link has no
+		//! client; an empty or over-sized buffer falls back to the failure
+		//! reply, so the editor always learns an outcome.
+		void notifyScreenshotData(String const & path,
+			unsigned char const * bytes, std::size_t length);
 
 		//! @brief is a MSG_RECORD_START trace in progress? The player's main
 		//! loop gates its per-frame sampling on this.

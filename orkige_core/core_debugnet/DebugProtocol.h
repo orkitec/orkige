@@ -279,6 +279,24 @@ namespace Orkige
 		//! (FIELD_MESSAGE then carries the reason). Additive since protocol v1:
 		//! old editors ignore unknown message types.
 		extern ORKIGE_CORE_DLL const String MSG_SCREENSHOT_SAVED;
+		//! @brief the OTHER answer to MSG_SCREENSHOT: the captured PNG's BYTES,
+		//! base64-encoded and split across a numbered sequence of messages.
+		//! FIELD_PATH echoes the requested path (the editor's own path - it is
+		//! what the requester asked for and where the reassembled image is
+		//! written), FIELD_SEQ is the 0-based chunk index, FIELD_TOTAL the
+		//! number of chunks the sequence carries and FIELD_DATA the chunk's
+		//! base64 slice, sized so the encoded line stays inside MAX_LINE_LENGTH.
+		//! @remarks Which answer a runtime sends is the RUNTIME's choice, not a
+		//! second request: a player whose filesystem the editor shares answers
+		//! MSG_SCREENSHOT_SAVED with the written path, and one whose captures
+		//! can never reach the editor's disk - the browser player, writing into
+		//! the page's in-memory filesystem - sends the image itself. A FAILED
+		//! capture always answers MSG_SCREENSHOT_SAVED with FIELD_VALUE "0", so
+		//! failure has exactly one shape on the wire. The receiver reassembles
+		//! strictly in order and fails closed on any damage (@see
+		//! core_debugnet/ScreenshotChunks.h) - a truncated PNG is never handed
+		//! on. Additive since protocol v1: old editors ignore unknown types.
+		extern ORKIGE_CORE_DLL const String MSG_SCREENSHOT_DATA;
 		//! @brief the answer to MSG_RECORD_START/MSG_RECORD_STOP: FIELD_PATH
 		//! echoes the written .jsonl trace, FIELD_VALUE is "1" on success / "0"
 		//! on failure (FIELD_MESSAGE then carries the reason). Additive since
@@ -412,6 +430,12 @@ namespace Orkige
 		extern ORKIGE_CORE_DLL const String FIELD_VALUE;			//!< property value (floats space-separated)
 		extern ORKIGE_CORE_DLL const String FIELD_CVAR_NAME;		//!< MSG_SET_CVAR: the console variable's name
 		extern ORKIGE_CORE_DLL const String FIELD_PATH;				//!< MSG_SCREENSHOT/MSG_RECORD_START: output file path
+		//! MSG_SCREENSHOT_DATA: the 0-based chunk index
+		extern ORKIGE_CORE_DLL const String FIELD_SEQ;
+		//! MSG_SCREENSHOT_DATA: the number of chunks in the sequence
+		extern ORKIGE_CORE_DLL const String FIELD_TOTAL;
+		//! MSG_SCREENSHOT_DATA: the chunk's base64 payload slice
+		extern ORKIGE_CORE_DLL const String FIELD_DATA;
 		extern ORKIGE_CORE_DLL const String FIELD_SECONDS;			//!< MSG_RECORD_START: max wall-clock seconds to record
 		extern ORKIGE_CORE_DLL const String FIELD_EVERY;			//!< MSG_RECORD_START: sample every Nth frame
 		extern ORKIGE_CORE_DLL const String FIELD_FILTER;			//!< MSG_RECORD_START: comma-separated id/name allowlist ("" = all)

@@ -763,16 +763,39 @@ static bool playerIterate(PlayerContext& context)
 		std::string screenshotPath;
 		if (debugLink.consumePendingScreenshot(screenshotPath))
 		{
-			render->saveWindowContents(screenshotPath);
+			// a capture that throws (an unsupported readback, an unwritable
+			// target) must REPORT, never take the game down with it: the
+			// editor is waiting for an answer either way
+			std::string shotFailure;
+			try
+			{
+				render->saveWindowContents(screenshotPath);
+			}
+			catch (std::exception const & shotException)
+			{
+				shotFailure = shotException.what();
+			}
 			// saveWindowContents is fire-and-forget; the file's presence
 			// (non-empty) is the honest success signal reported back
 			std::error_code shotError;
-			const bool captured =
+			const bool captured = shotFailure.empty() &&
 				std::filesystem::exists(screenshotPath, shotError) &&
 				std::filesystem::file_size(screenshotPath, shotError) > 0;
-			debugLink.notifyScreenshotSaved(screenshotPath, captured,
-				captured ? std::string()
-					: std::string("saveWindowContents wrote no file"));
+			if (!captured && shotFailure.empty())
+			{
+				// name the drawable too: a capture writes nothing when the
+				// window reports no size, and that is not a path problem
+				unsigned int shotW = 0;
+				unsigned int shotH = 0;
+				render->getWindowSize(shotW, shotH);
+				shotFailure = "saveWindowContents wrote no file at '" +
+					screenshotPath + "' (drawable " + std::to_string(shotW) +
+					"x" + std::to_string(shotH) + ")";
+			}
+			// the link picks its own answer road: the written path where the
+			// editor shares this filesystem, the image BYTES where it cannot
+			debugLink.notifyScreenshotCaptured(screenshotPath, captured,
+				shotFailure);
 			SDL_Log("orkige_player: debug screenshot %s -> '%s'",
 				captured ? "written" : "FAILED", screenshotPath.c_str());
 		}

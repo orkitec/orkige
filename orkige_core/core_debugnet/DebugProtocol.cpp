@@ -53,6 +53,7 @@ namespace Orkige
 		const String MSG_ERROR				= "error";
 		const String MSG_SCRIPT_ERROR		= "script_error";
 		const String MSG_SCREENSHOT_SAVED	= "screenshot_saved";
+		const String MSG_SCREENSHOT_DATA	= "screenshot_data";
 		const String MSG_RECORD_SAVED		= "record_saved";
 		const String MSG_STATS				= "stats";
 		const String MSG_UI_LAYOUT			= "ui_layout";
@@ -75,6 +76,9 @@ namespace Orkige
 		const String FIELD_VALUE			= "value";
 		const String FIELD_CVAR_NAME		= "cvar";
 		const String FIELD_PATH				= "path";
+		const String FIELD_SEQ				= "seq";
+		const String FIELD_TOTAL			= "total";
+		const String FIELD_DATA				= "data";
 		const String FIELD_SECONDS			= "seconds";
 		const String FIELD_EVERY			= "every";
 		const String FIELD_FILTER			= "filter";

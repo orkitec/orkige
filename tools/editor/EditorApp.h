@@ -46,6 +46,7 @@
 #include <core_debug/DebugMacros.h>	// tagged oDebug* diagnostics (SDL_Log policy)
 #include <core_debugnet/DebugClient.h>
 #include <core_debugnet/HttpServer.h>	// Play-in-Browser static server
+#include <core_debugnet/ScreenshotChunks.h>	// the chunked screenshot DATA road
 #include <core_project/AssetDatabase.h>
 #include <core_project/Project.h>
 #include <core_project/ProjectPaths.h>
@@ -1500,6 +1501,16 @@ struct PlaySession
 	std::string lastScreenshotError;
 	bool lastScreenshotOk = false;
 	unsigned int screenshotSeq = 0;
+	//! @brief reassembly state for the DATA road (MSG_SCREENSHOT_DATA): the
+	//! browser player cannot hand the editor a path, so its capture arrives as
+	//! a numbered chunk sequence the editor writes to its OWN disk at the
+	//! requested path. Fails closed on any damaged sequence (the pure seam is
+	//! core_debugnet/ScreenshotChunks.h); reset by clearRemoteState.
+	Orkige::ScreenshotChunkAssembler screenshotChunks;
+	//! @brief messages received off the play link OUTSIDE updatePlaySession
+	//! (the bounded screenshot wait pumps the socket itself) and left for its
+	//! normal routing, which drains this FIRST so ordering is preserved.
+	std::deque<Orkige::DebugMessage> deferredMessages;
 	//! running-game trace recording (MSG_RECORD_START/STOP / MSG_RECORD_SAVED):
 	//! recordingActive is set the moment a record request goes out and cleared
 	//! on the player's confirmation; lastRecordPath/Ok/Error hold the last
@@ -1948,11 +1959,32 @@ void setRemoteCvar(PlaySession& session, std::string const& name,
 	std::string const& value);
 
 //! @brief ask the RUNNING game to screenshot its next rendered frame to path
-//! (MSG_SCREENSHOT). The player answers with MSG_SCREENSHOT_SAVED, which
-//! updatePlaySession records in lastScreenshotPath/Ok/Error + screenshotSeq. A
-//! no-op when no player is connected. Desktop play only - the path lives on the
-//! player's filesystem, shared with the editor there.
+//! (MSG_SCREENSHOT). The player answers over whichever road ITS filesystem
+//! allows - MSG_SCREENSHOT_SAVED with the written path where the editor shares
+//! it, or a MSG_SCREENSHOT_DATA chunk sequence the editor reassembles and
+//! writes at path itself (the browser player) - and either way
+//! updatePlaySession records the outcome in lastScreenshotPath/Ok/Error +
+//! screenshotSeq. A no-op when no player is connected.
 void requestRemoteScreenshot(PlaySession& session, std::string const& path);
+
+//! @brief route ONE screenshot answer (MSG_SCREENSHOT_SAVED or a
+//! MSG_SCREENSHOT_DATA chunk) into the session's screenshot state. Returns true
+//! when the message was a screenshot answer (consumed), false otherwise.
+//! Shared by updatePlaySession and the bounded wait below so both roads record
+//! exactly the same result.
+bool applyRemoteScreenshotMessage(PlaySession& session, EditorConsole& console,
+	Orkige::DebugMessage const& message);
+
+//! @brief pump the play link until a screenshot answer newer than prevSeq
+//! lands, or budgetMs elapses; true when a fresh confirmation arrived.
+//! @remarks The MCP screenshot_game verb runs on the editor's frame thread and
+//! wants the PNG in its own reply (an agent that cannot read the editor's disk
+//! only ever sees an inlined image), so it waits here for the one frame the
+//! player needs. Messages that are NOT screenshot answers are parked in
+//! session.deferredMessages, which updatePlaySession drains before the socket -
+//! nothing is dropped and nothing else is routed from inside a verb.
+bool waitForRemoteScreenshot(PlaySession& session, EditorConsole& console,
+	unsigned int prevSeq, unsigned int budgetMs);
 
 //! @brief ask the RUNNING game to record a .jsonl flight-recorder trace to path
 //! (MSG_RECORD_START), sampling the world every everyNth frame for up to

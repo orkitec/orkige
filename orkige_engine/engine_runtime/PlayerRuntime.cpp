@@ -25,6 +25,7 @@
 #include "core_game/GameObjectManager.h"
 #include "core_game/GameState.h"
 #include "core_game/SceneSerializer.h"
+#include "core_debugnet/ScreenshotChunks.h"
 #include "core_debugnet/TraceWriter.h"
 #include "core_script/ScriptEventBus.h"
 #include "core_script/ScriptRuntime.h"
@@ -76,6 +77,12 @@ namespace Orkige
 	const int PlayerDebugLink::SCENE_TRANSFORM_INTERVAL_MS = 66;
 	const int PlayerDebugLink::DIAL_RETRY_INTERVAL_MS = 500;
 	const int PlayerDebugLink::DIAL_GIVE_UP_SECONDS = 20;
+	//! @brief where the DATA road captures to: a scratch name in the runtime's
+	//! own temporary directory, which always exists and is always writable
+	//! (the editor-requested path names a directory only the editor has, and a
+	//! capture there would simply write nothing). Deleted after each transfer.
+	static const char * const SCREENSHOT_SCRATCH_PATH =
+		"/tmp/orkige_screenshot_transfer.png";
 	//---------------------------------------------------------
 	namespace
 	{
@@ -548,10 +555,117 @@ namespace Orkige
 		{
 			return false;
 		}
-		outPath = mPendingScreenshotPath;
+		mScreenshotReplyPath = mPendingScreenshotPath;
+		// the DATA road captures to a runtime-local file: the requested path
+		// names a directory on the EDITOR's disk, which this runtime's
+		// filesystem does not have, so a capture there would write nothing
+		outPath = screenshotAnswersWithData()
+			? String(SCREENSHOT_SCRATCH_PATH) : mPendingScreenshotPath;
 		mHasPendingScreenshot = false;
 		mPendingScreenshotPath.clear();
 		return true;
+	}
+	//---------------------------------------------------------
+	bool PlayerDebugLink::screenshotAnswersWithData()
+	{
+#ifdef __EMSCRIPTEN__
+		// the browser player captures into the page's in-memory filesystem,
+		// which the editor's disk never sees - the image itself has to travel
+		return true;
+#else
+		return false;
+#endif
+	}
+	//---------------------------------------------------------
+	void PlayerDebugLink::notifyScreenshotCaptured(String const & capturePath,
+		bool ok, String const & error)
+	{
+		// the answer always names what the EDITOR asked for, whichever road it
+		// takes and wherever this runtime actually put the pixels
+		const String replyPath = mScreenshotReplyPath.empty()
+			? capturePath : mScreenshotReplyPath;
+		mScreenshotReplyPath.clear();
+		if (!ok || !screenshotAnswersWithData())
+		{
+			notifyScreenshotSaved(replyPath, ok, error);
+			return;
+		}
+		// read the freshly written capture back and send its bytes. The file is
+		// the drawable's own size (the page's canvas), so the payload is bounded
+		// by what the player actually renders.
+		std::vector<unsigned char> bytes;
+		String readError;
+		{
+			std::ifstream file(capturePath.c_str(),
+				std::ios::binary | std::ios::ate);
+			const std::streamoff size =
+				file ? static_cast<std::streamoff>(file.tellg()) : 0;
+			if (!file || size <= 0)
+			{
+				readError = "the capture could not be read back for transfer";
+			}
+			else
+			{
+				bytes.resize(static_cast<std::size_t>(size));
+				file.seekg(0);
+				file.read(reinterpret_cast<char *>(bytes.data()), size);
+				if (!file)
+				{
+					bytes.clear();
+					readError =
+						"the capture could not be read back for transfer";
+				}
+			}
+		}
+		// the scratch file has served its purpose either way - a runtime whose
+		// filesystem lives in memory must not accumulate frames
+		std::error_code removeIgnored;
+		std::filesystem::remove(capturePath.c_str(), removeIgnored);
+		if (bytes.empty())
+		{
+			notifyScreenshotSaved(replyPath, false, readError);
+			return;
+		}
+		notifyScreenshotData(replyPath, bytes.data(), bytes.size());
+	}
+	//---------------------------------------------------------
+	void PlayerDebugLink::notifyScreenshotData(String const & path,
+		unsigned char const * bytes, std::size_t length)
+	{
+		if (!mActive || !linkHasClient())
+		{
+			return;
+		}
+		if (length > screenshotMaxImageBytes())
+		{
+			notifyScreenshotSaved(path, false,
+				"the capture is larger than the " +
+				std::to_string(screenshotMaxImageBytes()) +
+				" byte transfer limit");
+			return;
+		}
+		const StringVector chunks = splitScreenshotChunks(bytes, length);
+		if (chunks.empty())
+		{
+			notifyScreenshotSaved(path, false, "the capture read back empty");
+			return;
+		}
+		const String total = std::to_string(chunks.size());
+		for (std::size_t i = 0; i < chunks.size(); ++i)
+		{
+			DebugMessage chunk(Protocol::MSG_SCREENSHOT_DATA);
+			chunk.set(Protocol::FIELD_PATH, path);
+			chunk.set(Protocol::FIELD_SEQ, std::to_string(i));
+			chunk.set(Protocol::FIELD_TOTAL, total);
+			chunk.set(Protocol::FIELD_DATA, chunks[i]);
+			if (!linkSend(chunk))
+			{
+				// a refused line breaks the sequence: the receiver fails closed
+				// on the gap rather than assembling a truncated PNG, so there is
+				// nothing left to send
+				return;
+			}
+		}
 	}
 	//---------------------------------------------------------
 	void PlayerDebugLink::notifyScreenshotSaved(String const & path, bool ok,

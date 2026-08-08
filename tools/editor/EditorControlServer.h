@@ -278,8 +278,10 @@ namespace Orkige
 		//! run the CONNECTED browser conversation on top of that flow: spawn
 		//! a headless browser at the served URL, wait for the page to dial
 		//! the live debug session in, then exercise it - [remote] log lines,
-		//! runtime_hierarchy, pause/resume, the honest screenshot_game
-		//! refusal - and stop (the editor_play_browser_session ctest;
+		//! runtime_hierarchy, pause/resume, a screenshot_game that brings the
+		//! page's own frame back over the link (chunked image data, inlined in
+		//! the reply and written here) - and stop (the
+		//! editor_play_browser_session ctest;
 		//! skipped() without the wasm player OR without a headless browser).
 		//! With agentLoop set, run the AGENT LOOP conversation: build a tiny
 		//! playable game from an EMPTY temp project entirely over MCP (author

@@ -9,6 +9,7 @@
 
 #include "core_debugnet/WebSocket.h"
 #include "core_debugnet/HttpServer.h"
+#include "core_util/Base64.h"
 #include "core_util/Sha1.h"
 
 #include <cstdint>
@@ -21,28 +22,6 @@ namespace Orkige
 		//! the fixed handshake GUID from RFC 6455 section 1.3
 		const char * const HANDSHAKE_GUID =
 			"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-		//---------------------------------------------------------
-		String base64Encode(unsigned char const * data, std::size_t length)
-		{
-			static const char ALPHABET[] =
-				"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-				"0123456789+/";
-			String out;
-			out.reserve(((length + 2) / 3) * 4);
-			for (std::size_t i = 0; i < length; i += 3)
-			{
-				const unsigned int byte0 = data[i];
-				const unsigned int byte1 = i + 1 < length ? data[i + 1] : 0;
-				const unsigned int byte2 = i + 2 < length ? data[i + 2] : 0;
-				const unsigned int triple =
-					(byte0 << 16) | (byte1 << 8) | byte2;
-				out += ALPHABET[(triple >> 18) & 0x3F];
-				out += ALPHABET[(triple >> 12) & 0x3F];
-				out += i + 1 < length ? ALPHABET[(triple >> 6) & 0x3F] : '=';
-				out += i + 2 < length ? ALPHABET[triple & 0x3F] : '=';
-			}
-			return out;
-		}
 		//---------------------------------------------------------
 		//! ASCII lower-case (header values compare case-insensitively)
 		String toLowerAscii(String const & value)
@@ -88,7 +67,7 @@ namespace Orkige
 			unsigned char digest[20];
 			Sha1::digest(reinterpret_cast<unsigned char const *>(salted.data()),
 				salted.size(), digest);
-			return base64Encode(digest, sizeof(digest));
+			return Base64::encode(digest, sizeof(digest));
 		}
 		//---------------------------------------------------------
 		HttpResponse buildHandshakeResponse(HttpRequest const & request)

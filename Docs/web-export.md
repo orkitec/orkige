@@ -394,8 +394,22 @@ Honest boundaries of the browser link:
   ends with the session there too. Closing/refreshing the tab mid-session
   ends the session like a vanished player — and with it the serve, so the
   reloaded page gets the 404, not a standalone restart.
-- `screenshot_game` and `record_trace` refuse: the page writes to its
+- `record_trace` refuses: a trace is a FILE, and the page writes to its
   in-memory filesystem, which never reaches the editor's disk.
+- `screenshot_game` works, over the road that absence forces: the page
+  reads its canvas back at the drawable's own size, encodes the PNG with
+  the engine's own writer (`core_util/PngWriter` — the browser closure
+  carries no image-ENCODE library, so the same encoder the Ogre-Next
+  backend uses everywhere covers the classic flavor here), writes it to a
+  scratch file in the page's own filesystem and sends the BYTES over the
+  debug link as a numbered `MSG_SCREENSHOT_DATA` chunk sequence (base64,
+  each line inside the transport's cap); the editor
+  reassembles them and writes the file at the requested path. The
+  reassembly fails closed on any gap, reordering, duplicate or oversize
+  claim - a named `[remote]` error, never a truncated PNG. That is what
+  makes the live parity cockpit possible: the browser frame and the
+  editor's `preview_game` frame at the same size, side by side, while both
+  run (`Docs/mcp-workflows.md`).
 - Lua/`.oui` **hot-reload** refuses (and the editor's file watchers stay
   dark): the page runs its packaged export snapshot — stop, re-play, and
   the fresh export picks the edit up.

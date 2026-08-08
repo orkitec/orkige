@@ -521,6 +521,76 @@ frame) — live tuning stays `set_runtime_property`/`set_cvar`.
 
 ---
 
+## 3d. The live parity cockpit (browser frame vs editor frame, side by side)
+
+The browser is a shipping target, so "does it still look right there?" is a
+question an agent has to be able to ask WHILE the game runs. It can: a browser
+play session answers `screenshot_game` with the frame itself. The page's capture
+lands in its own in-memory filesystem, which the editor's disk never sees, so
+the player reads the PNG back and sends its bytes over the debug link in a
+numbered chunk sequence (`MSG_SCREENSHOT_DATA`); the editor reassembles them and
+writes the file at the path you asked for. A damaged sequence fails closed with
+a named `[remote]` error — you never receive a truncated PNG.
+
+That gives you a PAIR taken at the same moment: the browser's own frame, and the
+editor's `preview_game` render of the same world at the same size.
+
+```jsonc
+// 1. put the game in a browser and wait for the LIVE link (not just "serving")
+play { "target":"browser" }                  // authed, async
+get_state {}                                 // poll → { "browser_play_status":"connected",
+                                             //          "play_mode":"playing" }
+
+// 2. drive the pair - both sides see the same change, because there is only
+//    one running game and the editor mirrors its motion
+set_cvar { "name":"r.iblQuality", "value":"2" }     // authed
+send_input { "steps":["key press RIGHT 20","wait 5"] }  // authed; frame-exact
+
+// 3. the BROWSER frame: the reply carries the PNG inline and writes the file
+screenshot_game { "path":"/tmp/parity/web.png" }
+//   → { "accepted":"1", "screenshot_ok":"1", "screenshot_seq":"1",
+//        "path":"/tmp/parity/web.png" } + an image content block
+//   (a slower answer replies "pending":"1" instead - then poll get_state
+//    until screenshot_seq exceeds prev_screenshot_seq)
+
+// 4. the EDITOR frame at the SAME size, next frame
+preview_game { "width":"1280", "height":"720", "scale":"1",
+               "path":"/tmp/parity/editor.png" }
+//   → { "path":"/tmp/parity/editor.png", "width":"1280", "height":"720",
+//        "play_mode":"playing", "mirroring_play":"true" } + an image block
+```
+
+Read `mirroring_play` before you compare anything. `"true"` means the play
+session is streaming its transforms into the editor world, so the preview shows
+the RUNNING game's poses — the two shots are two views of one moment, which is
+what makes them comparable. `"false"` means the preview is the AUTHORED scene,
+and a difference against the browser frame may be nothing but "the game has
+moved since it started".
+
+Compare the pair offline — the same driver the `web-parity` CI job runs, in its
+comparison-only mode, so the bands and the corridor are the gate's own:
+
+```sh
+python3 tests/integration_driver/run_web_parity_test.py \
+    --compare-shots --report-only \
+    --shot-web /tmp/parity/web.png --shot-desktop /tmp/parity/editor.png \
+    --pair-image /tmp/parity/pair.png
+```
+
+It names the per-band deltas and writes the side-by-side picture, so the verdict
+is a number plus something to look at. `--report-only` keeps it a MEASUREMENT:
+the gated corridors live in CI, on captures taken the CI way, and a cockpit
+comparison is for finding the seam, not for ratifying one.
+
+Honesty notes: a simulator or phone session refuses `screenshot_game` — its
+capture stays on the device, and there is no link road for it. `record_trace`
+still refuses in the browser for the reason that has not changed: a trace is a
+file the page writes, not a payload it sends. The chunk road exists only because
+a screenshot is a bounded, one-shot payload; do not read it as "files now cross
+the browser link".
+
+---
+
 ## 4. Author levels
 
 Build a tile-based level by stamping prefabs onto a snap grid, then wire the

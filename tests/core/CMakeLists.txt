@@ -25,6 +25,7 @@ add_executable(orkige_core_tests
     Sha256Tests.cpp
     PathJailTests.cpp
     WebSocketCodecTests.cpp
+    ScreenshotChunkTests.cpp
     EventTests.cpp
     ComponentTests.cpp
     TypeManagerTests.cpp
