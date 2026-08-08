@@ -464,21 +464,18 @@ jobs:
   # ==========================================================================
   # The downloadable editor binaries.
   #
-  # THE GATE. Binaries are published only from a commit the FULL test matrix
-  # (ci.yml, one job per platform x render flavor) proved green - a red tree
-  # must never reach a download page. This job asks the API for the most recent
-  # COMPLETED ci.yml run on main and reads its conclusion; the build jobs check
-  # out THAT run's commit rather than whatever main happens to be at now, so the
-  # binaries are built from exactly the tree that passed.
+  # THE GATE. Binaries are published only from main, and main is green BY
+  # CONSTRUCTION: branch protection (admins bound) refuses any push whose
+  # commit does not carry all required verdicts, and the fast-forward
+  # preserves the SHA those verdicts ride on. So the gate never re-derives
+  # greenness - it resolves main's head, pins every build job to THAT commit,
+  # and asks the one question protection cannot answer: has main moved since
+  # the last published nightly?
   #
-  # Why an API query and not a `workflow_run` trigger: workflow_run fires once
-  # per CI completion, i.e. on every push - that would build and republish
+  # Why a scheduled query and not a `workflow_run` trigger: workflow_run fires
+  # once per CI completion, i.e. on every push - that would build and republish
   # desktop binaries many times a day for no benefit, and it cannot be put on a
-  # schedule. One scheduled query gives exactly one build a day whenever main
-  # moved since the last published nightly - and main is green BY CONSTRUCTION
-  # (branch protection, admins bound, refuses an unverified push; the
-  # fast-forward preserves the SHA the verdicts ride on), so greenness is
-  # protection's job and never re-derived here.
+  # schedule. One scheduled resolve gives at most one build a day.
   #
   # A skip is a SKIP, not a failure: an unmoved main is the normal quiet night.
   binaries-gate:
