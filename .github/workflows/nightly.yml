@@ -514,41 +514,40 @@ jobs:
           # main never runs the CI workflow: the fast-forward moves the branch
           # pointer with the workflow token, which triggers nothing, and the
           # verdicts travel ON the commit as check runs from its development
-          # matrix. So the green question is asked of the HEAD COMMIT's check
-          # runs against the protection's own required-context list - the same
-          # truth branch protection enforces. gh + jq ship on every hosted
-          # runner; no action dependency here.
+          # matrix. So the green question is asked of the HEAD COMMIT's own
+          # check runs. The protection's required-context list would be the
+          # ideal reference, but a workflow token CANNOT read branch
+          # protection (admin scope - proven by one night of silently skipped
+          # binaries), so the gate reads what it can and holds two honest
+          # bars: NO check run concluded badly, and ENOUGH succeeded that a
+          # thin or empty check set can never read green (the matrix carries
+          # ~16 verdicts; the floor sits safely below that and far above
+          # zero). gh + jq ship on every hosted runner.
           sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha') \
             || { echo "::warning::could not resolve main"; echo "green=false" >> "$GITHUB_OUTPUT"; exit 0; }
-          gh api "repos/${GITHUB_REPOSITORY}/branches/main/protection/required_status_checks" \
-            --jq '.contexts[]' > required.txt \
-            || { echo "::warning::could not read the required contexts"; echo "green=false" >> "$GITHUB_OUTPUT"; exit 0; }
           gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs?per_page=100" --paginate \
             --jq '.check_runs[] | "\(.conclusion)\t\(.name)"' > checks.txt \
             || { echo "::warning::could not read the check runs"; echo "green=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          bad=$(grep -cE '^(failure|cancelled|timed_out|action_required)\t' checks.txt || true)
+          good=$(grep -cE '^success\t' checks.txt || true)
+          floor=12
           green=true
-          missing=""
-          while IFS= read -r context; do
-            if ! grep -Fq "$(printf 'success\t%s' "$context")" checks.txt; then
-              green=false
-              missing="${missing}${missing:+, }${context}"
-            fi
-          done < required.txt
-          required_count=$(wc -l < required.txt | tr -d ' ')
-          if [ "${required_count}" = "0" ]; then
-            # protection with no contexts would make every commit read green;
-            # that is a configuration hole, not a verdict
+          reason=""
+          if [ "${bad}" != "0" ]; then
             green=false
-            missing="no required contexts configured"
+            reason="${bad} check run(s) concluded badly: $(grep -E '^(failure|cancelled|timed_out|action_required)\t' checks.txt | cut -f2 | sort -u | paste -sd ',' -)"
+          elif [ "${good}" -lt "${floor}" ]; then
+            green=false
+            reason="only ${good} successful check run(s) on the head (floor ${floor}) - a commit without its matrix verdicts is unverified, not green"
           fi
           if [ "$green" = "true" ]; then
-            echo "all ${required_count} required checks green on ${sha}"
+            echo "${good} successful check runs, none bad, on ${sha}"
           else
-            echo "not green on ${sha}: ${missing}"
-            echo "::warning::main's head ${sha} is missing green required checks (${missing}) - skipping the binaries; a red tree is never published"
+            echo "not green on ${sha}: ${reason}"
+            echo "::warning::main's head ${sha} is not green (${reason}) - skipping the binaries; a red tree is never published"
           fi
-          verdict="required checks on $(printf '%.9s' "${sha}"): $([ "$green" = "true" ] && echo all green || echo "${missing}")"
-          skipped_reason="main's head is missing green required checks (\`${missing:-none}\`)"
+          verdict="check runs on $(printf '%.9s' "${sha}"): $([ "$green" = "true" ] && echo "${good} green, none bad" || echo "${reason}")"
+          skipped_reason="main's head is not green (\`${reason:-none}\`)"
           # THE MARKER, read once and used TWICE: the commit the standing nightly
           # was built from is both the unchanged-tree comparison below and the
           # changelog's lower bound in the build and publish jobs. It lives in the
