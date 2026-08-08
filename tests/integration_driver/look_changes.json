@@ -1,31 +1,4 @@
 {
   "note": "Declared look changes for the self-drift gate (run_self_drift_test.py, whose docstring is the reference). A commit that moves a captured pixel names the shot here with the sentence that explains it; a commit that moves none leaves this list EMPTY - which is the steady state. An entry is consumed by the landing it belongs to: once that commit is the previous green run its frames no longer move, the entry covers nothing, and the gate fails as STALE until it is removed. There are no permanent allowances. Entry keys: 'pattern' (an exact root-relative shot name, or a glob - '*' crosses '/', so 'render_facade/*' is the whole facade sweep and '*water*' every frame naming water), 'reason' (required, non-empty), 'flavors' (optional, ['classic'] or ['next'] when only one backend's frames move; both by default).",
-  "changes": [
-    {
-      "pattern": "mirrorlake/*",
-      "reason": "the mirror water converged: one lit compose on both flavors, the authored look deepened, and the mirror reflects the evaluated horizon instead of the raw dome"
-    },
-    {
-      "pattern": "lake/*",
-      "reason": "the refracted scene arrives linear: the transmitted lakebed lost its double encode and the water band converged to (4,6,3)",
-      "flavors": [
-        "next"
-      ]
-    },
-    {
-      "pattern": "web-lake/*",
-      "reason": "the web-comparison capture of the lake carries the same refraction convergence",
-      "flavors": [
-        "next"
-      ]
-    },
-    {
-      "pattern": "web-mirrorlake/*",
-      "reason": "the web-comparison capture of the mirror scene carries the same mirror convergence"
-    },
-    {
-      "pattern": "render_facade/selfcheck_ambient_*",
-      "reason": "the sky-type handover leg is new: three captures proving the authored ambient survives a procedural-to-colour switch"
-    }
-  ]
+  "changes": []
 }
