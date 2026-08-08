@@ -22,6 +22,23 @@ The headless browser is resolved from ORKIGE_CHROME, the macOS application
 path, or google-chrome/chromium on PATH. The browser process may outlive its
 usefulness (the page's timer loop keeps scheduling work), so every run is
 deadline-killed and asserted on the output captured up to that point.
+
+A BROWSER WITH NO GPU CONTEXT IS ITS OWN OUTCOME. A headless browser can
+start, load the page and run the wasm module while handing it no WebGL context
+at all (the GPU process fails to come up; the page's context request is
+refused). Every rendered thing the run was supposed to prove is then absent -
+which looks exactly like a feature gate that never opened, because the marker
+a probe prints is missing either way. So no leg here infers a cause from an
+absence: before a missing marker is reported as a verdict on a feature, the
+browser is ASKED whether it hands a page a GPU context at all
+(browser_gpu_context), and a browser that does not is reported under its own
+name and skipped - a run that cannot reach a GPU has nothing to say about what
+a GPU would have drawn. Where that absence must not be tolerated, the CI web
+job's may-not-skip guard turns the skip into a loud failure - with the cause
+named rather than a feature blamed.
+
+--selftest exercises the pure parts (the probe verdict, the browser's own
+GPU-absence words, and what a failed leg reports for each) and exits.
 """
 
 import argparse
@@ -249,6 +266,121 @@ def fail(message):
     sys.exit(1)
 
 
+# --- did this browser hand the page a GPU context at all? -------------------
+
+#: the whole probe, handed to the browser as its URL - no server, no file. It
+#: asks for the same WebGL context the player asks for and PRINTS the answer,
+#: so the question is answered rather than inferred. Chrome mirrors a page's
+#: console into its stderr log, which is the same channel every leg here reads.
+WEBGL_PROBE_MARKER = "ORKIGE_WEBGL: "
+WEBGL_PROBE_NONE = "none"
+WEBGL_PROBE_URL = (
+    "data:text/html,<script>"
+    "var c=document.createElement('canvas');"
+    "var g=c.getContext('webgl2')||c.getContext('webgl');"
+    "console.log('" + WEBGL_PROBE_MARKER + "'+(g?"
+    "(g.getParameter(g.RENDERER)||'context'):'" + WEBGL_PROBE_NONE + "'));"
+    "</script>")
+
+#: the browser's OWN words for a GPU that never came up for this page. They
+#: only ever enrich a verdict the probe already reached, never stand in for
+#: one: a transient line can be followed by a working context, so a log match
+#: alone would be another inference.
+GPU_ABSENT_PHRASES = (
+    "GPU process exited unexpectedly",
+    "The GPU process has crashed",
+    "ContextResult::kTransientFailure",
+    "ContextResult::kFatalFailure",
+    "Failed to send GpuControl.CreateCommandBuffer",
+    "Failed to establish GPU channel",
+    "Failed to create shared context",
+)
+
+#: the name of the outcome, kept in one place so every surface spells it alike
+NO_GPU_CONTEXT = "the browser provided no GPU context"
+
+
+def gpu_absence_detail(log):
+    """The browser's own line about a GPU that never came up, or ""."""
+    for line in log.splitlines():
+        for phrase in GPU_ABSENT_PHRASES:
+            if phrase in line:
+                return line.strip()
+    return ""
+
+
+def probe_verdict(log):
+    """PURE: a probe run's captured browser log -> (verdict, detail).
+
+    "gpu"        a context was handed out; detail is the renderer string
+    "none"       the page was refused a context; detail is the browser's own
+                 explanation where it gave one
+    "unanswered" the probe page never reported - a browser that cannot run a
+                 script says nothing about GPUs, and is not made to
+    """
+    for line in log.splitlines():
+        index = line.find(WEBGL_PROBE_MARKER)
+        if index < 0:
+            continue
+        # the console line is quoted and carries the page's source after it
+        renderer = line[index + len(WEBGL_PROBE_MARKER):].split('"')[0].strip()
+        if not renderer or renderer == WEBGL_PROBE_NONE:
+            return "none", (gpu_absence_detail(log) or
+                            "the page was refused a WebGL context")
+        return "gpu", renderer
+    return "unanswered", ""
+
+
+def browser_gpu_context(browser):
+    """Ask THIS browser, in a page of its own, for a WebGL context."""
+    return probe_verdict(run_browser(browser, WEBGL_PROBE_URL,
+                                     deadline_seconds=90, budget_ms=4000,
+                                     needed_markers=(WEBGL_PROBE_MARKER,)))
+
+
+def no_gpu_context_sentence(subject, detail):
+    """The ONE wording of this outcome, wherever a browser driver reports it."""
+    return ("%s (%s) - the page never reached WebGL, so this run has no "
+            "verdict on %s" % (NO_GPU_CONTEXT, detail, subject))
+
+
+def render_failure_report(subject, message, verdict, detail, log):
+    """PURE: what a leg that rendered nothing reports -> (exit code, text).
+
+    The GPU-context answer decides which of three different things happened,
+    and each gets its own sentence instead of the feature carrying the blame
+    for all of them.
+    """
+    if verdict == "none":
+        return 77, ("run_export_web: SKIPPED - %s - full log:\n%s"
+                    % (no_gpu_context_sentence(subject, detail), log))
+    if verdict == "gpu":
+        return 1, ("run_export_web: FAILED - %s - the browser provided a GPU "
+                   "context (%s), so the page's silence about %s is not a "
+                   "missing GPU - full log:\n%s"
+                   % (message, detail, subject, log))
+    return 1, ("run_export_web: FAILED - %s - the GPU-context probe did not "
+               "answer, so whether the page had a GPU is unknown - full "
+               "log:\n%s" % (message, log))
+
+
+def fail_render(browser, subject, message, log):
+    """Report a leg that rendered nothing - after asking why it did not.
+
+    Used ONLY where the finding is an ABSENCE (a marker that never appeared, a
+    frame with nothing in it). A leg that read a positive refusal out of the
+    engine's own log keeps reporting that refusal: it is evidence, not a gap.
+    """
+    verdict, detail = browser_gpu_context(browser)
+    if verdict == "none":
+        # the leg's own log ran far longer than the probe's and usually
+        # carries more of the browser's words about the GPU it never had
+        detail = gpu_absence_detail(log) or detail
+    code, text = render_failure_report(subject, message, verdict, detail, log)
+    print(text, flush=True)
+    sys.exit(code)
+
+
 def find_browser():
     candidates = []
     if os.environ.get("ORKIGE_CHROME"):
@@ -402,23 +534,27 @@ def assert_boot(output_dir, browser):
                "?env.ORKIGE_DEMO_FRAMES=90&env.ORKIGE_DEMO_FPS_LOG=1" % port)
         log = run_browser(browser, url, deadline_seconds=180,
                           needed_markers=(BOOT_MARKER, EXIT_MARKER))
+        # every report below carries the WHOLE captured console: a shader/GL
+        # failure's cause (the context version + supported-profile lines at GL
+        # init) sits thousands of lines before its symptom, so a tail is
+        # useless
+        subject = "the browser boot"
         if BOOT_MARKER not in log:
-            fail("player did not report the bundled project - full boot "
-                 "log:\n%s" % log)
+            fail_render(browser, subject,
+                        "player did not report the bundled project", log)
         if EXIT_MARKER not in log:
-            # the WHOLE captured console: a shader/GL failure's cause (the
-            # context version + supported-profile lines at GL init) sits
-            # thousands of lines before its symptom, so a tail is useless
-            fail("player did not reach the orderly shutdown (no frame-stats "
-                 "line) - full log:\n%s" % log)
+            fail_render(browser, subject,
+                        "player did not reach the orderly shutdown (no "
+                        "frame-stats line)", log)
         print("run_export_web: boot + clean shutdown OK", flush=True)
 
         # leg 2: a mid-run screenshot must show an actual rendered scene
         shot = os.path.join(output_dir, "boot_screenshot.png")
-        run_browser(browser, "http://127.0.0.1:%d/index.html" % port,
-                    deadline_seconds=180, screenshot=shot, budget_ms=8000)
+        shot_log = run_browser(
+            browser, "http://127.0.0.1:%d/index.html" % port,
+            deadline_seconds=180, screenshot=shot, budget_ms=8000)
         if not os.path.isfile(shot) or os.path.getsize(shot) == 0:
-            fail("no screenshot written")
+            fail_render(browser, subject, "no screenshot written", shot_log)
         image = orkige_png.decode_png(shot)
         colours = set()
         stride = 4 * 13  # sample a pixel grid - counting all is wasteful
@@ -427,8 +563,9 @@ def assert_boot(output_dir, browser):
             if len(colours) > 16:
                 break
         if len(colours) <= 4:
-            fail("screenshot is near-uniform (%d sampled colours) - the "
-                 "scene did not render" % len(colours))
+            fail_render(browser, subject,
+                        "screenshot is near-uniform (%d sampled colours) - "
+                        "the scene did not render" % len(colours), shot_log)
         print("run_export_web: screenshot renders a scene (%dx%d, >%d "
               "colours)" % (image.width, image.height, len(colours) - 1),
               flush=True)
@@ -450,11 +587,13 @@ def assert_roller(output_dir, browser):
         log = run_browser(browser, url, deadline_seconds=300,
                           needed_markers=(complete,))
         if failed in log:
+            # the selfcheck's own verdict, not an absence - reported as it is
             fail("the in-browser roller selfcheck FAILED - full log:\n%s"
                  % log)
         if complete not in log:
-            fail("the in-browser roller selfcheck never completed - full "
-                 "log:\n%s" % log)
+            fail_render(browser, "the in-browser roller selfcheck",
+                        "the in-browser roller selfcheck never completed",
+                        log)
         print("run_export_web: in-browser roller selfcheck complete",
               flush=True)
     finally:
@@ -475,18 +614,23 @@ def assert_water(output_dir, browser):
                "?env.ORKIGE_DEMO_FRAMES=90&env.ORKIGE_DEMO_FPS_LOG=1" % port)
         log = run_browser(browser, url, deadline_seconds=180,
                           needed_markers=(WATER_SUPPORTED_MARKER, EXIT_MARKER))
+        subject = "the advanced (screen-space refraction) water on WebGL2"
         for failed in WATER_SETUP_FAILED:
             if failed in log:
+                # the backend SAID a program failed to build: evidence, not a
+                # gap, so it is reported as the verdict it is
                 fail("a water program failed to build on WebGL2 ('%s') - the "
                      "ES-300 variant did not compile/link - full log:\n%s"
                      % (failed, log))
         if WATER_SUPPORTED_MARKER not in log:
-            fail("the fixture did not report screenSpaceRefraction supported on "
-                 "WebGL2 - the ES-300 water gate did not open - full log:\n%s"
-                 % log)
+            fail_render(browser, subject,
+                        "the fixture did not report screenSpaceRefraction "
+                        "supported on WebGL2 - the ES-300 water gate did not "
+                        "open", log)
         if EXIT_MARKER not in log:
-            fail("the water fixture did not reach the orderly shutdown - the "
-                 "ES-300 water may have faulted at render - full log:\n%s" % log)
+            fail_render(browser, subject,
+                        "the water fixture did not reach the orderly shutdown "
+                        "- the ES-300 water may have faulted at render", log)
         print("run_export_web: advanced water activated on WebGL2 (ES-300 "
               "grab-pass, no fallback)", flush=True)
     finally:
@@ -507,10 +651,11 @@ def _screenshot_glow_stats(output_dir, browser, port, name, extra_query=""):
     is the halo, so its pixel count is a robust, localised proxy for the glow."""
     shot = os.path.join(output_dir, name)
     url = "http://127.0.0.1:%d/index.html%s" % (port, extra_query)
-    run_browser(browser, url, deadline_seconds=180, screenshot=shot,
-                budget_ms=9000)
+    log = run_browser(browser, url, deadline_seconds=180, screenshot=shot,
+                      budget_ms=9000)
     if not os.path.isfile(shot) or os.path.getsize(shot) == 0:
-        fail("no screenshot written (%s)" % name)
+        fail_render(browser, "the LDR bloom compositor on WebGL2",
+                    "no screenshot written (%s)" % name, log)
     image = orkige_png.decode_png(shot)
     total = 0.0
     halo = 0
@@ -544,18 +689,22 @@ def assert_bloom(output_dir, browser):
                "?env.ORKIGE_DEMO_FRAMES=90&env.ORKIGE_DEMO_FPS_LOG=1" % port)
         log = run_browser(browser, url, deadline_seconds=180,
                           needed_markers=(BLOOM_SUPPORTED_MARKER, EXIT_MARKER))
+        subject = "the LDR bloom compositor on WebGL2"
         for failed in BLOOM_SETUP_FAILED:
             if failed in log:
+                # the backend's own refusal: evidence, not a gap
                 fail("bloom reported unsupported/failed on WebGL2 ('%s') - the "
                      "GLSL ES 3.0 compositor gate did not open - full log:\n%s"
                      % (failed, log))
         if BLOOM_SUPPORTED_MARKER not in log:
-            fail("the fixture did not report bloom supported on WebGL2 - the "
-                 "bloom gate did not open - full log:\n%s" % log)
+            fail_render(browser, subject,
+                        "the fixture did not report bloom supported on WebGL2 "
+                        "- the bloom gate did not open", log)
         if EXIT_MARKER not in log:
-            fail("the bloom fixture did not reach the orderly shutdown - the "
-                 "bloom compositor may have faulted at render - full log:\n%s"
-                 % log)
+            fail_render(browser, subject,
+                        "the bloom fixture did not reach the orderly shutdown "
+                        "- the bloom compositor may have faulted at render",
+                        log)
         print("run_export_web: bloom capability + clean shutdown OK",
               flush=True)
 
@@ -591,13 +740,21 @@ def assert_bloom(output_dir, browser):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--engine-build", required=True)
-    parser.add_argument("--output", required=True)
+    parser.add_argument("--engine-build")
+    parser.add_argument("--output")
     parser.add_argument("--mode",
                         choices=["structure", "boot", "roller", "water",
                                  "bloom"],
                         default="structure")
+    parser.add_argument("--selftest", action="store_true",
+                        help="exercise the pure parts and exit")
     args = parser.parse_args()
+
+    if args.selftest:
+        return selftest()
+    for name in ("engine_build", "output"):
+        if not getattr(args, name):
+            parser.error("--" + name.replace("_", "-") + " is required")
 
     browser = ""
     if args.mode in ("boot", "roller", "water", "bloom"):
@@ -630,7 +787,91 @@ def main():
     elif args.mode == "bloom":
         assert_bloom(output, browser)
     print("run_export_web: PASSED (%s)" % args.mode, flush=True)
+    return 0
+
+
+# --- selftest ---------------------------------------------------------------
+
+#: the two shapes a real Chrome writes to its stderr log for the probe page,
+#: captured from a headless run with the GPU allowed and with it denied. They
+#: are the fixtures because the parsing has to survive the console line's own
+#: framing (the quoting and the trailing source reference), not a tidied twin.
+PROBE_LOG_GPU = (
+    '[1:2:0101/000000.000000:INFO:CONSOLE:1] "ORKIGE_WEBGL: WebKit WebGL", '
+    'source: data:text/html... (1)\n')
+PROBE_LOG_NONE = (
+    '[1:2:0101/000000.000000:INFO:CONSOLE:1] "ORKIGE_WEBGL: none", '
+    'source: data:text/html... (1)\n'
+    '[1:2:0101/000000.000001:ERROR:content/browser/gpu/gpu_process_host.cc'
+    ':1035] GPU process exited unexpectedly: exit_code=15\n')
+
+
+def selftest():
+    # the probe answers all three ways, and each answer carries its detail
+    verdict, detail = probe_verdict(PROBE_LOG_GPU)
+    assert (verdict, detail) == ("gpu", "WebKit WebGL"), (verdict, detail)
+    verdict, detail = probe_verdict(PROBE_LOG_NONE)
+    assert verdict == "none", verdict
+    assert "GPU process exited unexpectedly" in detail, detail
+    # a page refused a context with the browser saying nothing about why is
+    # still a refusal, and says so in its own words
+    verdict, detail = probe_verdict('x "ORKIGE_WEBGL: none", source: y\n')
+    assert verdict == "none" and "refused a WebGL context" in detail, detail
+    # a browser that never ran the page is NOT turned into a GPU verdict
+    assert probe_verdict("")[0] == "unanswered"
+    assert probe_verdict("some unrelated chatter\n")[0] == "unanswered"
+
+    # the browser's own words are read where they exist and nowhere else -
+    # a feature's absence must never be mistaken for a missing GPU
+    assert "kTransientFailure" in gpu_absence_detail(
+        "[ERROR:command_buffer_proxy_impl.cc(129)] "
+        "ContextResult::kTransientFailure: Failed to send "
+        "GpuControl.CreateCommandBuffer.\n")
+    assert gpu_absence_detail(
+        "water_probe: screenSpaceRefraction=false\n"
+        "refraction setup failed\n") == ""
+
+    # what a leg that rendered nothing reports, per answer. The absent GPU is
+    # its OWN outcome and skips; a context that WAS handed out makes the
+    # feature verdict earned; an unanswered probe claims neither.
+    code, said = render_failure_report(
+        "the advanced water on WebGL2", "the ES-300 water gate did not open",
+        "none", "GPU process exited unexpectedly", "boot log")
+    assert code == 77, said
+    assert NO_GPU_CONTEXT in said and "SKIPPED" in said, said
+    assert "no verdict on the advanced water on WebGL2" in said, said
+    assert "ES-300" not in said, said         # the feature is not blamed
+
+    code, said = render_failure_report(
+        "the advanced water on WebGL2", "the ES-300 water gate did not open",
+        "gpu", "ANGLE (SwiftShader)", "boot log")
+    assert code == 1 and "FAILED" in said, said
+    assert "ES-300 water gate did not open" in said, said
+    assert "provided a GPU context (ANGLE (SwiftShader))" in said, said
+    assert "is not a missing GPU" in said, said
+    assert NO_GPU_CONTEXT not in said, said
+
+    code, said = render_failure_report(
+        "the advanced water on WebGL2", "the ES-300 water gate did not open",
+        "unanswered", "", "boot log")
+    assert code == 1 and "probe did not answer" in said, said
+    assert NO_GPU_CONTEXT not in said, said
+
+    # every report carries the whole captured log, which is where a real cause
+    # is read from
+    for verdict in ("none", "gpu", "unanswered"):
+        assert "boot log" in render_failure_report(
+            "s", "m", verdict, "d", "boot log")[1]
+
+    # the probe URL is the page the fixtures came from: it asks for the same
+    # context the player asks for, and prints the marker the parsing reads
+    assert "getContext('webgl2')" in WEBGL_PROBE_URL
+    assert WEBGL_PROBE_MARKER in WEBGL_PROBE_URL
+    assert WEBGL_PROBE_NONE in WEBGL_PROBE_URL
+
+    print("run_export_web: selftest OK", flush=True)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

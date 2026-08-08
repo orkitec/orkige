@@ -230,6 +230,39 @@ headless Chrome/Chromium (boot marker → clean shutdown → a mid-run screensho
 that must contain an actual scene, pixel-checked). The boot test SKIPs (77)
 on machines without a headless browser (`ORKIGE_CHROME` overrides discovery).
 
+### A browser with no GPU context is its own outcome
+
+A headless browser can start, load the page and run the wasm module while
+handing it **no WebGL context at all** — the GPU process fails to come up, the
+context request is refused, and every rendered thing the run was supposed to
+prove is simply absent. That absence is identical to the one a feature gate
+that never opened leaves behind: the marker a probe prints is missing either
+way. So no browser leg infers a cause from a missing marker. Before a
+rendering failure is reported, the driver **asks the browser** whether it hands
+a page a context — a probe page of its own (`browser_gpu_context` in
+`run_export_web.py`) that requests the same WebGL context the player requests
+and prints the renderer it got — and the answer decides which of three
+different things is reported:
+
+| Probe answer | Outcome |
+|--------------|---------|
+| a context, named (`WebKit WebGL`, `ANGLE (…SwiftShader…)`) | the feature verdict stands, and says the context existed |
+| none | `the browser provided no GPU context` — exit **77**, a skip |
+| the probe never reported | the feature verdict stands, saying the GPU question is unknown |
+
+A run that cannot reach a GPU has nothing to say about what a GPU would have
+drawn, which is why the second row skips rather than fails — the same rule a
+display-less host follows. Where that absence must not be tolerated, the CI
+web job's may-not-skip guard (`! grep -q "Skipped"`) turns the skip into a
+loud failure, now with the cause named instead of a feature blamed. The
+browser's own words about the GPU it never had (`ContextResult::…`,
+`GPU process exited unexpectedly`) ride along as the detail; they never stand
+in for the probe's answer, because a transient line can be followed by a
+working context. A leg that read a **positive refusal** out of the engine's own
+log (a water or bloom program that failed to build) still reports that
+refusal — it is evidence, not a gap. The browser parity captures answer the
+same question the same way before blaming a scene that "did not load".
+
 ## Render parity with the desktop
 
 The browser must render what the desktop renders. That is one gate, on one

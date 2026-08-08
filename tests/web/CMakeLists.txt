@@ -8,6 +8,13 @@
 # else an `orkige_export` in any configured host build tree. Without one it
 # refuses and names the preset to build.
 #
+# Every browser leg below reports a run that rendered NOTHING under the right
+# name: a browser that hands the page no WebGL context is asked about
+# explicitly and SKIPs (77) as "the browser provided no GPU context", so a
+# GPU-less host never comes back as a verdict on the feature under test. The
+# CI web job refuses a skipped web test, which is what keeps that skip a loud
+# failure exactly where a GPU was expected.
+#
 #   export_web_structure  export the reference Lua project for the web and
 #                         assert the artifact set (shell page, wasm player
 #                         pair, packed payload image + loader, icon)
@@ -59,7 +66,10 @@ set_tests_properties(export_web_roller PROPERTIES
 #                         WebGL2/GLES3 context (the ES-300 grab-pass water
 #                         variant), build its programs with no fallback refusal
 #                         and render the surface through to the orderly
-#                         shutdown. SKIPs (77) without a headless browser.
+#                         shutdown. SKIPs (77) without a headless browser, and
+#                         under its own name where the browser gave the page no
+#                         GPU context (a run that never reached WebGL has no
+#                         verdict on an ES-300 gate).
 add_test(NAME export_web_water
     COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/run_export_web.py"
         --engine-build "${CMAKE_BINARY_DIR}"
@@ -98,9 +108,12 @@ set_tests_properties(export_web_bloom PROPERTIES
 #                         never the black canvas a dead page composites - and
 #                         the frame is what the CI web-parity job compares
 #                         against the linux-classic job's own capture of the
-#                         same scene. SKIPs (77) without a headless browser;
-#                         the web job refuses a skipped web test, so that skip
-#                         is a failure exactly where the artifact is needed.
+#                         same scene. SKIPs (77) without a headless browser,
+#                         and where the browser gave the page no GPU context
+#                         (there is no render to picture, and nothing to say
+#                         about the WebGL tier); the web job refuses a skipped
+#                         web test, so either skip is a failure exactly where
+#                         the artifact is needed.
 #                         The comparison road (--compare-shots) and the
 #                         both-sides developer road (--engine-build +
 #                         --player-classic) live in the same driver.
@@ -133,7 +146,8 @@ endforeach()
 #                           responsive-canvas crop fix and the results screen's
 #                           input-events wiring (the autoRestart seam does not
 #                           exercise the click path). SKIPs (77) without a
-#                           headless browser.
+#                           headless browser, and under its own name where the
+#                           browser gave the page no GPU context.
 add_test(NAME export_web_embed_click
     COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/run_embed_click.py"
         --engine-build "${CMAKE_BINARY_DIR}"

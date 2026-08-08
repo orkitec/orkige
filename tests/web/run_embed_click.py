@@ -16,7 +16,11 @@ mouse click on the Restart button's on-screen position, and asserts the tour
 restarts from scene 1 (the click reached the button's hit rect). No
 autoRestart seam is used - only the browser click exercises the wiring.
 
-SKIPs (exit 77) on a machine without a headless browser. Exit 0 pass, 1 fail.
+SKIPs (exit 77) on a machine without a headless browser, and under its own
+name where the browser hands the page no WebGL context at all - a page that
+never reached a GPU is silent in exactly the way a scene that failed to load
+is, and only one of the two is something this check can report. Exit 0 pass,
+1 fail.
 """
 import base64
 import json
@@ -33,7 +37,9 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from run_export_web import export, find_browser, serve, REPO_ROOT  # noqa: E402
+from run_export_web import (export, find_browser, serve,  # noqa: E402
+                            browser_gpu_context, no_gpu_context_sentence,
+                            REPO_ROOT)
 sys.path.insert(0, os.path.join(REPO_ROOT, "Util"))
 import orkige_png  # noqa: E402
 
@@ -44,6 +50,17 @@ VIEW_W, VIEW_H = 928, 522
 
 def log(m):
     print("run_embed_click: " + m, flush=True)
+
+
+def skip_without_gpu_context(browser, subject):
+    """A browser that hands the page no WebGL context has produced no render
+    to check - the outcome gets its own name and its own exit code (77), the
+    way a host with no display does, rather than being reported as a defect in
+    what never got the chance to draw."""
+    verdict, detail = browser_gpu_context(browser)
+    if verdict == "none":
+        log("SKIPPED - " + no_gpu_context_sentence(subject, detail))
+        sys.exit(77)
 
 
 def fail(m, cdp=None):
@@ -290,6 +307,10 @@ def main():
 
         if not cdp.wait_console(r"director\[vista\]: 'Terrace Vista' ready",
                                 180):
+            # a page handed no WebGL context goes as quiet as a scene that
+            # failed to load - so ask the browser which of the two this is
+            # before naming one
+            skip_without_gpu_context(browser, "the embedded benchmark tour")
             fail("the vista scene never initialised in the browser", cdp)
         assert_hud_title(cdp, out)
 

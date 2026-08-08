@@ -364,15 +364,41 @@ def capture_web(repo, engine_build, scene, shot, work_dir,
                 write_page_capture(cdp, extra_shot)
                 assert_rendered(load_capture("web (second)", extra_shot),
                                 extra_shot)
-        except SystemExit:
+        except SystemExit as exit_code:
             # whatever went wrong in the page, the page's own log is what says
             # why - a browser refusal is undiagnosable from the harness alone
             console_tail(cdp)
+            if exit_code.code == 1:
+                # ... and the FIRST question is whether the page had a GPU at
+                # all: a browser that hands out no WebGL context produces the
+                # same silence as a scene that failed to load, and only one of
+                # those is something this capture can report
+                gpu_context_or_skip(browser, scene)
             raise
         return image
     finally:
         process.terminate()
         server.shutdown()
+
+
+def gpu_context_or_skip(browser, scene, probe=None):
+    """Ask the browser for a WebGL context; SKIP under its own name if there
+    is none.
+
+    A capture is a picture of a render, so a browser that hands the page no
+    GPU context leaves nothing to picture - and nothing to say about the
+    WebGL tier this gate exists to judge. That is a different outcome from a
+    scene that failed to load, and it is reported as one rather than
+    attributed to the page. The CI web job refuses a skipped web test, so
+    where the absence must not be tolerated it is still a loud failure -
+    with the cause named.
+    """
+    from run_export_web import browser_gpu_context, no_gpu_context_sentence
+    verdict, detail = (probe or browser_gpu_context)(browser)
+    if verdict == "none":
+        skip(no_gpu_context_sentence("the browser capture of " + scene,
+                                     detail))
+    return verdict, detail
 
 
 def write_page_capture(cdp, path):
@@ -920,6 +946,34 @@ def selftest():
     small = os.path.join(scratch, "small.png")
     write_noisy_png(small, 640, 360, base=(10, 20, 30))
     expect_blank_refusal("a wrongly sized capture", small, "not 1280x720")
+
+    # a browser that hands the page no GPU context is its OWN outcome: the
+    # capture is skipped under that name, never attributed to the scene or to
+    # the WebGL tier this gate judges. A browser that DOES hand one out lets
+    # the page's own failure stand.
+    def probe_answering(verdict, detail):
+        return lambda _browser: (verdict, detail)
+
+    captured = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(captured):
+            gpu_context_or_skip("chrome", lake,
+                                probe_answering("none", "GPU process exited"))
+    except SystemExit as exit_code:
+        assert exit_code.code == 77, exit_code.code
+        said = captured.getvalue()
+        assert "provided no GPU context" in said, said
+        assert "GPU process exited" in said and lake in said, said
+    else:
+        raise AssertionError("a GPU-less browser was not skipped")
+    with contextlib.redirect_stdout(io.StringIO()):
+        assert gpu_context_or_skip("chrome", lake,
+                                   probe_answering("gpu", "SwiftShader")) == \
+            ("gpu", "SwiftShader")
+        # an unanswered probe claims nothing either way
+        assert gpu_context_or_skip("chrome", lake,
+                                   probe_answering("unanswered", ""))[0] == \
+            "unanswered"
 
     # an explicitly asked-for capture with no player is a failure, not a skip
     expect_refusal("a desktop capture with no player",

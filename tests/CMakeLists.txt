@@ -171,12 +171,26 @@ add_test(NAME self_drift_driver_selftest
 set_tests_properties(self_drift_driver_selftest PROPERTIES
     LABELS unit TIMEOUT 60)
 
+# the web-export driver's pure parts: what a browser leg that rendered
+# NOTHING reports. A browser can run the page while handing it no WebGL
+# context at all, which looks exactly like a feature gate that never opened,
+# so the driver asks the browser for a context before it names a cause - and
+# the three answers (a context, none, an unanswered probe) must keep their
+# three different sentences. The probe-log fixtures are captured from a real
+# headless Chrome, GPU allowed and GPU denied. No browser, no export.
+add_test(NAME web_export_driver_selftest
+    COMMAND python3 "${CMAKE_CURRENT_SOURCE_DIR}/web/run_export_web.py"
+        --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(web_export_driver_selftest PROPERTIES
+    LABELS unit TIMEOUT 60)
+
 # the browser parity driver's pure parts: the region comparison and its
 # corridors, the refusals that keep a missing/blank/unreadable frame from
 # reading as parity, the browser-capture assertions (right rectangle, an
-# actual scene) and the manifest rewrite that points a browser export at the
-# scene under test. No browser, no wasm tree, no export - those roads are the
-# web tree's ctests and the CI parity job.
+# actual scene), the GPU-less browser's own skip and the manifest rewrite that
+# points a browser export at the scene under test. No browser, no wasm tree,
+# no export - those roads are the web tree's ctests and the CI parity job.
 add_test(NAME web_parity_driver_selftest
     COMMAND python3
         "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_web_parity_test.py"
