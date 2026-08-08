@@ -539,7 +539,11 @@ jobs:
             || { echo "::warning::could not read the check runs after three attempts - skipping the binaries this night; the next green night builds the backlog"; echo "green=false" >> "$GITHUB_OUTPUT"; exit 0; }
           bad=$(grep -cE '^(failure|cancelled|timed_out|action_required)\t' checks.txt || true)
           good=$(grep -cE '^success\t' checks.txt || true)
-          floor=12
+          # the floor IS the required-context count (branch protection's 16):
+          # a matrix reshape that changes how many verdicts land on a commit
+          # updates this number in the same change, the way benchmark budgets
+          # move with the code - a floor nobody derived guards nothing
+          floor=16
           green=true
           reason=""
           if [ "${bad}" != "0" ]; then
