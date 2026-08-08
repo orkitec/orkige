@@ -527,8 +527,11 @@ jobs:
             sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha') && break
             [ "$attempt" -lt 3 ] && { echo "resolve attempt ${attempt} failed - retrying in 30s"; sleep 30; }
           done
+          # an UNANSWERABLE gate is a red run, never a quiet green: "nothing
+          # new" is the one legitimate skip, and it requires having read the
+          # answer. Failing here notifies; the next run still self-heals.
           [ -n "$sha" ] \
-            || { echo "::warning::could not resolve main after three attempts - skipping the binaries this night; the next run builds the backlog"; echo "green=false" >> "$GITHUB_OUTPUT"; exit 0; }
+            || { echo "::error::could not resolve main after three attempts - failing the run so the outage is seen; the next run builds the backlog"; exit 1; }
           green=true
           verdict="main at $(printf '%.9s' "${sha}") (green by protection)"
           skipped_reason=""
