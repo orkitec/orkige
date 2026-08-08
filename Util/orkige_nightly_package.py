@@ -112,6 +112,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import zipfile
 
 import orkige_buildtree  # sibling Util helper: build-tree facts + host tools
@@ -1693,22 +1694,34 @@ def notary_submission_verdict(stdout):
     return identifier, status, status == "Accepted"
 
 
-def notarize(artifact, notary, what="", runner=subprocess.run):
+def notarize(artifact, notary, what="", runner=subprocess.run,
+             sleeper=time.sleep):
     """submit one artifact, wait for the verdict, and on a rejection fetch and
     print the notarization LOG - which names the offending binary and is the
-    only way to diagnose one. Anything but "Accepted" fails the build."""
+    only way to diagnose one. Anything but "Accepted" fails the build.
+
+    A submission that came back with NO submission id is one Apple never took
+    (a service hiccup, not a verdict on the artifact) and gets ONE retry after
+    a pause; a real rejection carries an id and is never resubmitted."""
     what = what or os.path.basename(artifact)
-    log("submitting %s for notarization (waiting up to %s)"
-        % (what, NOTARY_TIMEOUT))
-    result = run_credentialed(notarytool_submit_argv(artifact, notary),
-                              notary.secrets(), runner)
-    print(result.stdout or "", end="", flush=True)
-    identifier, status, accepted = notary_submission_verdict(result.stdout)
-    if accepted:
-        log("Apple accepted %s (submission %s)" % (what, identifier))
-        return identifier
-    if (result.stderr or "").strip():
-        print(result.stderr, end="", flush=True)
+    identifier, status = "", ""
+    for attempt in (1, 2):
+        log("submitting %s for notarization (waiting up to %s)"
+            % (what, NOTARY_TIMEOUT))
+        result = run_credentialed(notarytool_submit_argv(artifact, notary),
+                                  notary.secrets(), runner)
+        print(result.stdout or "", end="", flush=True)
+        identifier, status, accepted = notary_submission_verdict(result.stdout)
+        if accepted:
+            log("Apple accepted %s (submission %s)" % (what, identifier))
+            return identifier
+        if (result.stderr or "").strip():
+            print(result.stderr, end="", flush=True)
+        if identifier or attempt == 2:
+            break
+        log("the notary service returned no submission for %s - retrying "
+            "once in 120s" % what)
+        sleeper(120)
     if identifier:
         # the verdict alone says nothing actionable; the log names the binary
         log("fetching the notarization log for submission " + identifier)
@@ -4762,15 +4775,29 @@ exit 0
     assert tool.calls[1][:4] == ["xcrun", "notarytool", "log", "44444444"], \
         tool.calls[1]
 
-    # a submission that says nothing usable is a refusal too, and there is no
-    # id to ask about - so exactly one call, and no artifact
-    tool = FakeNotary(["notarytool: command not found"])
+    # a submission that says nothing usable is one Apple never TOOK - a
+    # service hiccup, not a verdict - so it is retried once before refusing,
+    # and with no id there is no log to ask about: two submits, no artifact
+    naps = []
+    tool = FakeNotary(["notarytool: command not found",
+                       "notarytool: command not found"])
     try:
-        notarize("/out/Orkige.dmg", api, runner=tool)
+        notarize("/out/Orkige.dmg", api, runner=tool, sleeper=naps.append)
         raise AssertionError("expected a refusal for an unreadable verdict")
     except SystemExit:
         pass
-    assert len(tool.calls) == 1, tool.calls
+    assert len(tool.calls) == 2, tool.calls
+    assert all(argv[2] == "submit" for argv in tool.calls), tool.calls
+    assert naps == [120], naps
+
+    # ... and the retry may succeed: a hiccup then an acceptance publishes.
+    # A REJECTION is never resubmitted - the rejected case above stays at one
+    # submit plus the log fetch.
+    naps = []
+    tool = FakeNotary(["", accepted])
+    assert notarize("/out/Orkige.dmg", api, runner=tool,
+                    sleeper=naps.append) == "11111111-2222-3333"
+    assert len(tool.calls) == 2 and naps == [120], (tool.calls, naps)
 
     # --- the inside-out seal, over a synthetic bundle -------------------
     # The ORDER is the load-bearing part (a bundle seal records the signatures

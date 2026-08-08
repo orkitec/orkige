@@ -1450,10 +1450,17 @@ jobs:
       # self-containment and configuration coherence, compiles every installed
       # header, then builds and runs a real game module with the engine source
       # tree, build tree and vcpkg root all denied. ~14s on a warm Release tree.
+      # the acceptance run renders a real frame, so it gets the same xvfb +
+      # software-Vulkan environment the AppImage boot check below runs under
       - name: Verify the SDK pack (MUST pass - gates the release)
         run: |
-          ctest --test-dir "build/$PRESET" -R "^sdk_pack" \
-            --output-on-failure --no-tests=error
+          set -euo pipefail
+          LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1)
+          echo "using ICD: $LVP_ICD"
+          export VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD"
+          xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" \
+            ctest --test-dir "build/$PRESET" -R "^sdk_pack" \
+              --output-on-failure --no-tests=error
 
       - name: Save ccache
         if: always()
@@ -1687,6 +1694,36 @@ jobs:
       - name: Build the editor + player + the staged payload
         shell: pwsh
         run: cmake --build --preset ${env:PRESET} --target orkige_editor_bundle
+
+      # The acceptance run renders a real frame, and the hosted runner has no
+      # GPU: Mesa's lavapipe ICD provides software Vulkan with Win32
+      # presentation, exactly as the ci.yml windows-next suite runs its
+      # windowed tests.
+      - name: Install Mesa software Vulkan driver
+        id: msys2
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884  # v2.32.0
+        with:
+          msystem: UCRT64
+          update: true
+          install: mingw-w64-ucrt-x86_64-mesa
+
+      - name: Locate Mesa lavapipe Vulkan driver
+        shell: pwsh
+        env:
+          MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          $icd = Join-Path $env:MSYS2_LOCATION "ucrt64/share/vulkan/icd.d/lvp_icd.x86_64.json"
+          if (-not (Test-Path $icd)) {
+            throw "The MSYS2 Mesa package did not provide $icd"
+          }
+          Write-Host "Using Vulkan ICD: $icd"
+          "VK_DRIVER_FILES=$icd" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "VK_ICD_FILENAMES=$icd" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          # the ICD's lvp DLL depends on the MSYS2 UCRT runtime DLLs; the test
+          # processes load it OUTSIDE any MSYS2 shell, so those DLLs must be
+          # resolvable on the plain Windows PATH or instance creation fails
+          # with no devices
+          (Join-Path $env:MSYS2_LOCATION "ucrt64/bin") | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
       # The SDK pack that pairs with THIS editor, gating publication (see the
       # macOS job for the rationale). The clean room degrades on Windows - there
