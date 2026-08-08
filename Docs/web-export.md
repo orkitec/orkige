@@ -341,6 +341,8 @@ refusals. The artifact `web-parity-captures` carries every frame, the diff
 images and `pairs/` — the side-by-side pictures, `<scene>_browser_vs_classic`
 and `<scene>_browser_vs_next`.
 
+The comparison half stands alone: `--compare-shots --shot-web A --shot-desktop B --report-only --pair-image out.png` measures any two captures and writes the side-by-side, with nothing booted - the road the live parity cockpit walkthrough in [mcp-workflows.md](mcp-workflows.md) drives on ad-hoc frames.
+
 Corridors are measured, and tight because the measurement allowed it: the
 browser and the desktop agree to 0-3 levels per band, so the corridors sit at
 12 (20 on the mirror-ripple band) rather than the 20-55 the cross-flavor gate

@@ -20,7 +20,9 @@ with its own machinery; neither backend is pessimized to serve the other.
 | **Same-mesh instancing** | *(no facade surface)* | **not built — gated out** (see the verdict below) | native: the Hlms auto-instances identical Items with one shared vao/datablock — nothing to declare |
 
 Toggles (live cvars, both default **on**; the honest escape hatches and the
-levers the identity tests flip):
+levers the identity tests flip — the full cvar reference, the `r.*` quality
+group and the `water.*` live look tier, lives in
+[materials.md](materials.md)):
 
 - `r.staticScene` — apply the static flag to the renderer. The **editor
   boots it off** (edit mode: gizmo moves must never fight the mobility

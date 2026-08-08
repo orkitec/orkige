@@ -293,8 +293,9 @@ rendered anyway.
 
 The `r.planarReflection` cvar (the boot-seedable planar-water gate, ON by
 default; OFF renders water with its non-mirror sky-reflection fallback and never
-stands up the reflection subsystem) remains as a general knob — it is no longer
-part of this quarantine, since turning it off did not stop the fault. The mirror
+stands up the reflection subsystem) is a general knob, independent of this
+quarantine — the fault occurs with it off too, so the skip is the scene, not
+the feature. The mirror
 **feature itself is covered** by the dedicated pixel gates, which keep planar
 reflection ON: `water_mirror_wobble` (the wave-perturbed-mirror existence gate,
 next flavor, a fresh single-scene boot of Mirror Lake — distinct from the tour's

@@ -21,30 +21,31 @@ Where the artifacts go, and what they can and cannot do, is below. Read
 [what a downloaded build cannot do yet](#what-a-downloaded-build-cannot-do-yet)
 before expecting one to replace a build tree.
 
-## The green gate
+## The gate: main moved, and protection is the green authority
 
-Binaries are built ONLY from a commit the full test matrix proved green. The
-`binaries-gate` job asks the API for the most recent **completed** `ci.yml` run
-on `main` and reads its conclusion:
+Binaries are built only from `main`, and `main` is green **by construction**:
+branch protection (admins bound) refuses any push whose commit does not carry
+all required verdicts, and the fast-forward preserves the SHA those verdicts
+ride on. The `binaries-gate` job therefore never re-derives greenness — it
+resolves `main`'s head, pins every build job to **that commit** (never
+whatever `main` drifts to mid-run), and asks the one question protection
+cannot answer: has `main` moved since the last published nightly?
 
-- conclusion `success` → the build jobs check out **that run's commit** (not
-  whatever `main` is at now, which may carry untested pushes) and proceed.
-- any other conclusion, or no completed run at all → every later job is skipped
-  and the log carries an annotation naming the run and its conclusion. A red
-  tree is never published, and the failure is not reported twice: `ci.yml`
-  already said so.
+The resolve gets three attempts, thirty seconds apart — a once-a-day gate must
+not lose a night to one API blip. If all three miss, the run **fails**: an
+unanswerable gate is a red run, never a quiet green, and the next run builds
+the backlog. The only green skip is the honest one — nothing new to publish.
 
-The gate is an API query rather than a `workflow_run` trigger because
-`workflow_run` fires once per CI completion — that is once per push, which would
-rebuild and republish desktop binaries many times a day, and it cannot be put on
-a schedule. One scheduled query gives exactly one build a day from the last
-proven-green commit.
+The gate is a scheduled query rather than a `workflow_run` trigger because
+`workflow_run` fires once per CI completion — that is once per push, which
+would rebuild and republish desktop binaries many times a day, and it cannot
+be put on a schedule. One scheduled resolve gives at most one build a day.
 
 The schedule is the shared nightly cron, 23:07 UTC: shortly after 01:00 in the
-owner's timezone, and off the round minute where GitHub's cron backlog collects.
-A push made minutes before that has not finished CI yet, so the gate finds the
-previous green run and builds that — which is the intended behaviour, not a
-miss.
+owner's timezone, and off the round minute where GitHub's cron backlog
+collects. A push made minutes before that has not finished its matrix, so
+`main` has not moved onto it yet and the night builds the last fast-forwarded
+commit — which is the intended behaviour, not a miss.
 
 ## Unchanged trees are not rebuilt
 
@@ -53,9 +54,12 @@ nightly was built from: identical means **skip**, with a notice saying so. The
 predecessor's commit comes from a machine-readable marker the publish job writes
 into the release notes (`<!-- orkige-nightly-commit: … -->`), so the check needs
 no state outside the release itself; a missing marker or a missing release — the
-first night, or one deleted by hand — counts as "build". The job summary
-distinguishes the two skip reasons, so a quiet night reads as *nothing new*
-rather than as a red tree.
+first night, or one deleted by hand — counts as "build". The read names the
+repository explicitly (`--repo`): the gate runs before any checkout, and
+without that flag `gh` has no git directory to infer the repository from, so
+an existing marker silently reads as "no predecessor". The gate prints the
+marker it resolved, and a quiet night reads as *nothing new* rather than as a
+red tree.
 
 That marker does double duty: the predecessor's commit is also the lower bound of
 the changelog every artifact and the release notes carry, so it is read once and
@@ -65,9 +69,10 @@ A **manual** `workflow_dispatch` always builds, even from an unchanged commit:
 asking for a build by hand is itself the override.
 
 `workflow_dispatch` runs the same pipeline on demand. Its `run_binaries` input
-(default on) skips it, and `ignore_gate` builds the dispatched ref even when
-`main` is red — the log and the job summary both name the override, so an
-artifact produced that way is never mistaken for a gated one.
+(default on) skips it, and `ignore_gate` builds the **dispatched ref** even
+when the gate could not resolve `main` or found nothing new — the log and the
+job summary both name the override, so an artifact produced that way is never
+mistaken for a gated one.
 
 ## What each platform ships
 

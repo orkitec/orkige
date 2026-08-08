@@ -69,11 +69,11 @@ $ echo $?
 2
 ```
 
-This is deliberate and it is load-bearing. Unrecognised arguments used to be
-ignored, so a typo on a build server opened a graphical application on a machine
-with nobody in front of it and the job hung until its timeout, with nothing in
-the log to explain it. **Flags** keep the old behaviour — the windowed editor's
-own options are flags and an unknown one must stay harmless there.
+This is deliberate and it is load-bearing: a first-word typo on a build
+server must exit with an error in the log, never open a graphical application
+on a machine with nobody in front of it. **Flags** stay harmless when unknown
+— the windowed editor's own options are flags, and a stray one must not stop
+an interactive launch.
 
 ## `export`
 

@@ -286,8 +286,11 @@ stop {}                                      // authed → {}
 Every `runtime_*` verb (and `pause`/`resume`/`step`/`screenshot_game`/
 `record_trace`/`stop_recording`) returns `isError` with `"no live player - start
 Play first"` when nothing is playing, so the edit-world / live-game boundary is
-never ambiguous. `screenshot_game` and `record_trace` are desktop-play only (the
-path lives on the player's filesystem, which the editor shares only on desktop).
+never ambiguous. `record_trace` is desktop-play only (a trace is a file on
+the player's filesystem, which the editor shares only on desktop);
+`screenshot_game` works on desktop AND browser sessions — a page's capture
+rides the debug link back as image data (see the cockpit walkthrough below) —
+and refuses only simulator/phone sessions.
 Prefer `record_trace` when the evidence is motion or timing over a window — a
 jump arc, a tween, a physics settle, a contact — and read the numbers back.
 When you only need to confirm what's on screen right now, `screenshot_game`

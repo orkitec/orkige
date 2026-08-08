@@ -250,7 +250,7 @@ advertised set is the discoverable subset, not a hard limit.)
 | `runtime_select(id)` | choose which running object streams its component state (`MSG_SELECT`) |
 | `runtime_state()` | the streamed component state of the selected running object (values + kinds/hints/readonly) |
 | `set_runtime_property(id, component, property, value)` | write one reflected property on the RUNNING game live (`MSG_SET_PROPERTY`) |
-| `set_cvar(name, value)` | change a console variable on the RUNNING game live (`MSG_SET_CVAR`) |
+| `set_cvar(name, value)` | change a console variable on the RUNNING game live (`MSG_SET_CVAR`) — the `log.*` verbosity tags, the `r.*` quality group and the `water.*` live look tier ([materials.md](materials.md)) all answer to it |
 | `reload_script(id?)` | hot-reload Lua on the RUNNING game — one object or all (`MSG_RELOAD_SCRIPT`) |
 | `reload_ui(file)` | hot-reload one declarative `.oui` screen on the RUNNING game — destroy-and-rebuild its widgets from the fresh file (`MSG_RELOAD_UI`); a parse failure keeps the OLD screen and surfaces a `[remote]` error, a rebuild emits the `ui.reloaded` script event. The editor's `.oui` watcher fires this on a file save too |
 | `reload_anim(file)` | hot-reload one vector-animation rig (`.oanim`) on the RUNNING game (`MSG_RELOAD_ANIM`): the player parses the fresh file FIRST, then rebuilds every `VectorAnimationComponent` playing it (clean cutover — playback restarts at each component's reflected `clip`); a parse failure keeps every OLD rig and surfaces a `[remote]` error naming the line, a rebuild emits the `animation.reloaded` script event. The editor's animation watcher fires this on a file save too (re-cooking a changed Lottie source first); after a `reimport_asset` during Play, call it yourself |
@@ -468,7 +468,8 @@ process the input), and a second gesture while one is in flight. On a DEVICE wit
 a real accelerometer a `tilt` step is overruled by the sensor: the gesture still
 succeeds and `input_message` says so. The verb is transport-neutral — desktop,
 simulator, adb device and browser sessions all take it, since nothing here
-touches a filesystem (unlike `screenshot_game`/`record_trace`).
+touches a filesystem (unlike `record_trace`, and `screenshot_game` on a
+simulator or phone).
 
 The agent playtest loop is `send_input` → `runtime_state` (did the object move?)
 → `screenshot_game` (does it look right?) → `console_tail` (did anything

@@ -139,7 +139,9 @@ Hit **Play** in the toolbar or **Cmd/Ctrl+P**. Orkige launches the standalone
 player as a **separate process** and talks to it over a debug protocol, so a crash
 in your game can never take the editor down. While it runs you get a **live remote
 Hierarchy and Inspector** — the tree and property values update from the running
-game, and you can edit properties and cvars live.
+game, and you can edit properties and cvars live (the `r.*` quality group
+and the `water.*` look tier in [materials.md](materials.md) are all
+reachable this way).
 
 Best of all: **edit your `.lua` and save while playing.** The editor watches
 `scripts/` and hot-reloads the changed script into the running game (it compiles
