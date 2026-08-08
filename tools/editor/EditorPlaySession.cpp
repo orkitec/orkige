@@ -1722,6 +1722,23 @@ void reloadRemoteMesh(PlaySession& session, EditorConsole& console,
 		"player");
 }
 
+//! shader-file hot-reload: tell the running player to re-read every shader
+//! source file its renderer builds from (no payload - the reload covers the
+//! whole file-backed shader surface)
+void reloadRemoteShaders(PlaySession& session, EditorConsole& console)
+{
+	if (!session.client.isConnected())
+	{
+		return;
+	}
+	Orkige::DebugMessage reload(Protocol::MSG_RELOAD_SHADERS);
+	session.client.send(reload);
+	oDebugMsg("editor.play", 0,
+		"shader reload requested - sent to the player");
+	console.addLine(ConsoleLevel::Info,
+		"[reload] shader files - re-reading them on the running player");
+}
+
 //! vector-animation hot-reload: tell the running player to re-read one rig
 void reloadRemoteAnim(PlaySession& session, EditorConsole& console,
 	std::string const& animName)

@@ -310,6 +310,24 @@ namespace Orkige
 		bool readResourceText(String const & resourceName,
 			String & outText) const;
 
+		//--- shader files ---
+		//! @brief re-read every shader SOURCE FILE the renderer builds from and
+		//! throw away what was generated out of the previous contents, so the
+		//! next frame rebuilds from the bytes on disk. This is the look-dev
+		//! loop for shader code: edit the file, reload, see the frame change -
+		//! no restart. What "every" covers is per flavor and the honest answer
+		//! lives in Docs/materials.md; shader code a backend carries as a C++
+		//! string constant is not in a file and is never reached. Returns false
+		//! with @p outError naming the file or stage that refused; a backend
+		//! that cannot keep the previous shaders alive across the swap says so
+		//! in the doc rather than pretending.
+		//! map: classic=RTSS ShaderGenerator::flushShaderCache (the generated
+		//! programs are dropped and every scheme re-derives, re-resolving the
+		//! engine shader library's #include from disk) | next=Hlms::reloadFrom
+		//! over each registered Hlms (templates + piece library re-enumerated,
+		//! the shader/PSO caches cleared) | filament=material package reload
+		bool reloadShaderFiles(String & outError);
+
 		//--- stats ---
 		//! @see RenderSystem::FrameStats
 		FrameStats getFrameStats() const;

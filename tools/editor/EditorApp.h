@@ -1926,6 +1926,15 @@ void reloadRemoteAnim(PlaySession& session, EditorConsole& console,
 void reloadRemoteMesh(PlaySession& session, EditorConsole& console,
 	std::string const& meshName);
 
+//! @brief tell the RUNNING player to re-read every shader SOURCE FILE its
+//! renderer builds from (MSG_RELOAD_SHADERS): the next frame rebuilds from the
+//! bytes on disk. Payload-free - the reload covers the whole file-backed
+//! shader surface, which is per flavor and documented in Docs/materials.md.
+//! Deliberately has NO project-tree watcher: shader files are ENGINE media, and
+//! the watcher watches a project, so the MCP reload_shaders verb is its only
+//! caller.
+void reloadRemoteShaders(PlaySession& session, EditorConsole& console);
+
 //! @brief write a live component property on the RUNNING game (MSG_SET_PROPERTY,
 //! the reflected setter on the player - takes effect immediately, not undoable
 //! and NOT an edit-world change). A no-op when no player is connected.

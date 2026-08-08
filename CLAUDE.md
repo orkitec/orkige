@@ -1143,6 +1143,19 @@ what rule it carries, which doc has the depth.
     parse failure keeps the OLD screen and reports a `[remote]` error; a rebuild
     emits the `ui.reloaded` bus event so scripts re-acquire handles
     (`Docs/gui.md`). `.oanim` and `.omesh` reload the same way.
+  - **Shader files reload during Play** — `MSG_RELOAD_SHADERS` / MCP
+    `reload_shaders`, payload-free (a reload is "re-read the shader files"),
+    applied at the same message-drain point through the facade
+    `RenderSystem::reloadShaderFiles`. Next re-reads the whole Hlms template
+    tree (`Hlms::reloadFrom` per registered Hlms); classic re-derives every
+    generated surface shader so the engine shader library's `#include`
+    resolves from disk again. **The previous shaders do not survive** — the
+    cache they lived in is what gets dropped, so a broken file is a named
+    backend error, not a silent revert — and shader code carried as C++ string
+    constants (the classic water and sky-dome programs) is in no file and
+    never in scope. Shader files are ENGINE media, so no project watcher fires
+    it. Each flavor's shader media root takes ONE env override through
+    `engine_util/ShaderMediaDir.h` — `Docs/materials.md`.
   - **Level system** (`core_game/Level*`): a deferred mid-play scene switch via
     the `LevelManager` pending-load applied at the player-loop frame boundary;
     `levels.olevels`; progression save in the documents directory.

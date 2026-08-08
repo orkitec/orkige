@@ -3116,6 +3116,49 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	//! The surface shaders this backend runs are GENERATED per material, and
+	//! the engine-owned shader library (media/rtss) reaches them as an
+	//! `#include` the generated source names - the include is resolved out of
+	//! the resource system when the GPU program is compiled, and the archive
+	//! opens the real file every time, so the bytes on disk are what a
+	//! recompile sees. What hides an edit is the cache of ALREADY generated
+	//! programs: the generated text is unchanged by a library edit, so the
+	//! cached program is reused and the new bytes are never read. Dropping that
+	//! cache is therefore the whole mechanism - it releases every generated
+	//! program, removes them from the program manager and invalidates every
+	//! scheme, so the next frame re-derives, re-writes and re-compiles, and the
+	//! include is resolved from disk again.
+	//!
+	//! The previous shaders do NOT survive: they are what gets released. A
+	//! library edit that no longer compiles surfaces as this backend's own
+	//! compile error naming the file and stage on the next frame, and the
+	//! affected material falls back to its unshaded technique rather than
+	//! reverting silently. Shader code this backend carries as C++ string
+	//! constants (the water and sky-dome programs) is not in a file and is
+	//! never in scope - Docs/materials.md states both.
+	bool RenderSystem::reloadShaderFiles(String & outError)
+	{
+		Ogre::RTShader::ShaderGenerator* generator =
+			Ogre::RTShader::ShaderGenerator::getSingletonPtr();
+		if(!generator)
+		{
+			outError = "no shader generator on this run - nothing is built "
+				"from shader files";
+			return false;
+		}
+		try
+		{
+			generator->flushShaderCache();
+		}
+		catch(Ogre::Exception const & error)
+		{
+			outError = "the shader library re-read refused: " +
+				error.getDescription();
+			return false;
+		}
+		return true;
+	}
+	//---------------------------------------------------------
 	RenderSystem::FrameStats RenderSystem::getFrameStats() const
 	{
 		Ogre::RenderTarget::FrameStats const & backendStats =

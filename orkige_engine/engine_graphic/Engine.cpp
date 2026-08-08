@@ -15,6 +15,7 @@
 #include "engine_render_classic/ClassicBackend.h"
 #include "engine_util/StringUtil.h"
 #include "engine_util/PlatformWindow.h"
+#include "engine_util/ShaderMediaDir.h"
 #include <core_util/CameraFit.h>
 #include <core_event/GlobalEventManager.h>
 #include <core_debug/Profile.h>
@@ -575,13 +576,17 @@ namespace Orkige
 			// their Media/RTShaderLib instead (export + mobile packaging), so
 			// a missing baked path is not an error there - skip silently.
 			{
+				// the same one-variable override the next flavor's Hlms
+				// template directory takes, so a run can read (and edit) a
+				// COPY of the shader library instead of the engine's own
+				const String rtssDir = resolveShaderMediaDir(
+					ORKIGE_CLASSIC_RTSS_MEDIA_DIR,
+					std::getenv("ORKIGE_CLASSIC_RTSS_MEDIA_DIR"));
 				std::error_code rtssDirError;
-				if (std::filesystem::is_directory(ORKIGE_CLASSIC_RTSS_MEDIA_DIR,
-					rtssDirError))
+				if (std::filesystem::is_directory(rtssDir, rtssDirError))
 				{
 					Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
-						ORKIGE_CLASSIC_RTSS_MEDIA_DIR, "FileSystem",
-						Ogre::RGN_INTERNAL);
+						rtssDir, "FileSystem", Ogre::RGN_INTERNAL);
 				}
 			}
 #endif

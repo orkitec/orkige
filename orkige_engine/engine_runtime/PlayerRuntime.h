@@ -464,6 +464,7 @@ namespace Orkige
 			DebugMessage const & message);
 		void handleReloadMesh(GameObjectManager & gameObjectManager,
 			DebugMessage const & message);
+		void handleReloadShaders();
 		void handleSetCvar(DebugMessage const & message);
 		//! @brief accept a MSG_SEND_INPUT gesture: compile the step list and arm
 		//! the frame-by-frame replay. A malformed list, an in-flight gesture or

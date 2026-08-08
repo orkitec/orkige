@@ -1478,6 +1478,42 @@ namespace Orkige
 			file + "' on " + std::to_string(users.size()) + " component(s)");
 	}
 	//---------------------------------------------------------
+	//! @brief reload_shaders (shader-file hot-reload): re-read everything the
+	//! renderer builds shaders from on disk and drop what was generated out of
+	//! the previous contents, so the next frame rebuilds from the fresh bytes.
+	//! Payload-free - a reload is "re-read the shader files"; which files that
+	//! is belongs to the backend and is documented per flavor.
+	//! Player-directed like reload_ui/reload_mesh: the editor and the MCP verb
+	//! only send this, and the swap happens HERE, at the message-drain point,
+	//! never mid-frame.
+	//!
+	//! The browser player refuses honestly: its page runs a packaged export
+	//! snapshot, so there is no shader file on disk for it to re-read - the
+	//! same shape as the breakpoint refusal.
+	void PlayerDebugLink::handleReloadShaders()
+	{
+#if defined(__EMSCRIPTEN__)
+		sendError("reload_shaders is not available in the browser player "
+			"(the page runs its packaged export snapshot - there is no "
+			"shader file on disk to re-read)");
+#else
+		RenderSystem* render = RenderSystem::get();
+		if(render == NULL)
+		{
+			sendError("reload_shaders: no render system on this run");
+			return;
+		}
+		String error;
+		if(!render->reloadShaderFiles(error))
+		{
+			sendError("reload_shaders: " + error);
+			return;
+		}
+		EngineLogCapture::logMessage("orkige runtime: re-read the shader "
+			"files - the next frame rebuilds from disk");
+#endif
+	}
+	//---------------------------------------------------------
 	//! @brief set_cvar: change a console variable on the RUNNING
 	//! player live. CVarManager::setString parses+validates the value per the
 	//! cvar's registered type and fires its onChange (the live re-apply seam),
@@ -1925,6 +1961,13 @@ namespace Orkige
 				// retire the mesh resource and rebuild every user at this
 				// message-drain point
 				handleReloadMesh(gameObjectManager, message);
+			}
+			else if (message.type == Protocol::MSG_RELOAD_SHADERS)
+			{
+				// shader-file hot-reload (editor-driven): re-read every shader
+				// source file the renderer builds from at this message-drain
+				// point; the next frame rebuilds from the fresh bytes
+				handleReloadShaders();
 			}
 			else if (message.type == Protocol::MSG_SET_CVAR)
 			{

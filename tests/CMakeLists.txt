@@ -2698,6 +2698,40 @@ if(TARGET orkige_player)
     set_tests_properties(player_mesh_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_MESH_SELFCHECK=1")
 
+    # Shader-file hot-reload, end to end and per flavor: an edit to a shader
+    # SOURCE FILE reaches the RUNNING game's next frame with no restart. The
+    # driver copies this flavor's shader media tree into the build tree and
+    # points the run at the copy through the flavor's media override, so the
+    # repository's own media and the installed engine media are never written
+    # to; the player's selfcheck then captures the frame, applies the edited
+    # file, calls RenderSystem::reloadShaderFiles (what the reload_shaders
+    # debug message runs), captures, restores, reloads and captures again. The
+    # verdict is the pair of pictures: the frame MOVED on the edit and RETURNED
+    # on the restore. Which file is edited is per flavor because the mechanism
+    # is - the Hlms pixel-shader template on next, the engine shader library
+    # the generated surface shaders `#include` on classic
+    # (Docs/materials.md#shader-files-reload-live). The fixture is the water
+    # project because it fills the frame with PBS-lit surfaces on both flavors.
+    if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
+        set(ORKIGE_SHADER_MEDIA_ROOT
+            "${Orkige_SOURCE_DIR}/orkige_engine/media/rtss")
+    else()
+        set(ORKIGE_SHADER_MEDIA_ROOT
+            "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre-next/Media")
+    endif()
+    add_test(NAME player_shader_reload${ORKIGE_FLAVOR_TEST_SUFFIX}
+        COMMAND python3
+            "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_shader_reload_test.py"
+            --player "$<TARGET_FILE:orkige_player>"
+            --flavor "${ORKIGE_RENDER_BACKEND}"
+            --media "${ORKIGE_SHADER_MEDIA_ROOT}"
+            --project projects/watertest
+            --scene projects/watertest/scenes/main.oscene
+            --out "${CMAKE_CURRENT_BINARY_DIR}/shader_reload${ORKIGE_FLAVOR_TEST_SUFFIX}"
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(player_shader_reload${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        LABELS integration TIMEOUT 300)
+
     # THE scripting proof, end to end: the jumper game reimplemented in
     # pure Lua (projects/jumper-lua, scripts/player.lua on a ScriptComponent
     # - zero compiled game code). The player's selfcheck injects synthetic

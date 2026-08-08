@@ -139,6 +139,25 @@ void PlayerSelfChecks::readEnvironment(PlayerContext& context)
 	// local bounds and real submitted triangles.
 	meshAssetCheck =
 		(std::getenv("ORKIGE_MESH_SELFCHECK") != nullptr);
+	// ORKIGE_SHADER_RELOAD_SELFCHECK names the directory the three captures
+	// land in; ORKIGE_SHADER_RELOAD_TARGET the shader source file this run
+	// rewrites (inside the COPY the media override points the run at) and
+	// ORKIGE_SHADER_RELOAD_EDIT the edited variant to copy over it. The probe
+	// never composes shader text itself - it copies bytes it was handed, so
+	// the same code proves the reload on both render flavors.
+	if (const char* shaderShots =
+		std::getenv("ORKIGE_SHADER_RELOAD_SELFCHECK"))
+	{
+		shaderReloadShotDir = shaderShots;
+		if (const char* target = std::getenv("ORKIGE_SHADER_RELOAD_TARGET"))
+		{
+			shaderReloadTargetPath = target;
+		}
+		if (const char* edit = std::getenv("ORKIGE_SHADER_RELOAD_EDIT"))
+		{
+			shaderReloadEditPath = edit;
+		}
+	}
 	// ORKIGE_GALLERY_SELFCHECK verifies the runtime UI widget tier end to end
 	// against projects/gallery: every tab of the declarative gallery is
 	// reachable, a wrapped label really breaks lines (taller than a single-line
@@ -4078,6 +4097,152 @@ void PlayerSelfChecks::perFrame(PlayerContext& context)
 		running = false;
 	}
 
+	// --- shader-file hot-reload selfcheck (ORKIGE_SHADER_RELOAD_SELFCHECK) ---
+	// THE RELOAD MECHANIC, in process: rewrite a shader SOURCE FILE the
+	// renderer builds from and call RenderSystem::reloadShaderFiles - exactly
+	// what the reload_shaders debug message runs on a live play session (the
+	// message plumbing itself is the shared reload_ui/reload_mesh road). The
+	// file lives in a COPY of the engine's shader media, which the run was
+	// pointed at through the media override, so the repository's own media is
+	// never written to. Three captures - before the edit, after it, after the
+	// restore - are the verdict; the driver compares them, because "the pixels
+	// moved" is a picture question and this process holds no decoder.
+	if (!shaderReloadShotDir.empty() && !shaderReloadFailed &&
+		shaderReloadStep < 6)
+	{
+		auto shaderReloadFail = [&](std::string const& what)
+		{
+			SDL_Log("orkige_player: SHADER RELOAD SELFCHECK FAILED - %s "
+				"(step %d)", what.c_str(), shaderReloadStep);
+			shaderReloadFailed = true;
+		};
+		auto shaderReloadWrite = [&](std::string const& bytes) -> bool
+		{
+			std::ofstream file(shaderReloadTargetPath,
+				std::ios::binary | std::ios::trunc);
+			file << bytes;
+			return file.good();
+		};
+		auto shaderReloadApply = [&](const char* what) -> bool
+		{
+			Orkige::String error;
+			if (!render->reloadShaderFiles(error))
+			{
+				shaderReloadFail(std::string(what) + ": the backend refused "
+					"the re-read - " + error);
+				return false;
+			}
+			return true;
+		};
+		if (shaderReloadStep == 0)
+		{
+			// read both files ONCE, before anything is touched: a missing
+			// fixture must fail by name, not as a blank frame nobody explains
+			if (shaderReloadTargetPath.empty() || shaderReloadEditPath.empty())
+			{
+				shaderReloadFail("no shader file to rewrite was named "
+					"(ORKIGE_SHADER_RELOAD_TARGET / _EDIT)");
+			}
+			else
+			{
+				std::ifstream original(shaderReloadTargetPath,
+					std::ios::binary);
+				std::ifstream edited(shaderReloadEditPath, std::ios::binary);
+				shaderReloadOriginal.assign(
+					std::istreambuf_iterator<char>(original),
+					std::istreambuf_iterator<char>());
+				shaderReloadEdited.assign(
+					std::istreambuf_iterator<char>(edited),
+					std::istreambuf_iterator<char>());
+				if (shaderReloadOriginal.empty())
+				{
+					shaderReloadFail("the shader file to rewrite is missing "
+						"or empty: " + shaderReloadTargetPath);
+				}
+				else if (shaderReloadEdited.empty())
+				{
+					shaderReloadFail("the edited shader variant is missing "
+						"or empty: " + shaderReloadEditPath);
+				}
+				else if (shaderReloadEdited == shaderReloadOriginal)
+				{
+					// an edit that changes nothing would "pass" a weaker
+					// probe by proving only that the frame is stable
+					shaderReloadFail("the edited shader variant is identical "
+						"to the original - the probe would prove nothing");
+				}
+				else if (frameCount >= 30)
+				{
+					render->saveWindowContents(
+						shaderReloadShotDir + "/shader_before.png");
+					shaderReloadStep = 1;
+					shaderReloadStepFrame = frameCount;
+				}
+			}
+		}
+		else if (shaderReloadStep == 1 && frameCount >= shaderReloadStepFrame + 8)
+		{
+			if (!shaderReloadWrite(shaderReloadEdited))
+			{
+				shaderReloadFail("the edited shader could not be written to " +
+					shaderReloadTargetPath);
+			}
+			else if (shaderReloadApply("after the edit"))
+			{
+				shaderReloadStep = 2;
+				shaderReloadStepFrame = frameCount;
+			}
+		}
+		else if (shaderReloadStep == 2 && frameCount >= shaderReloadStepFrame + 12)
+		{
+			render->saveWindowContents(
+				shaderReloadShotDir + "/shader_after.png");
+			shaderReloadStep = 3;
+			shaderReloadStepFrame = frameCount;
+		}
+		else if (shaderReloadStep == 3 && frameCount >= shaderReloadStepFrame + 8)
+		{
+			// the restore is the second half of the proof: a reload that only
+			// ever darkened the frame would pass a one-way check
+			if (!shaderReloadWrite(shaderReloadOriginal))
+			{
+				shaderReloadFail("the original shader could not be restored "
+					"to " + shaderReloadTargetPath);
+			}
+			else if (shaderReloadApply("after the restore"))
+			{
+				shaderReloadStep = 4;
+				shaderReloadStepFrame = frameCount;
+			}
+		}
+		else if (shaderReloadStep == 4 && frameCount >= shaderReloadStepFrame + 12)
+		{
+			render->saveWindowContents(
+				shaderReloadShotDir + "/shader_restored.png");
+			shaderReloadStep = 5;
+			shaderReloadStepFrame = frameCount;
+		}
+		else if (shaderReloadStep == 5 && frameCount >= shaderReloadStepFrame + 6)
+		{
+			SDL_Log("orkige_player: SHADER RELOAD SELFCHECK captured three "
+				"frames - the edit and the restore each went through "
+				"RenderSystem::reloadShaderFiles on '%s'",
+				shaderReloadTargetPath.c_str());
+			shaderReloadStep = 6;
+			running = false;
+		}
+		// a wedged step must say WHICH one, not run until the harness kills it
+		if (!shaderReloadFailed && shaderReloadStep < 6 && frameCount > 900)
+		{
+			shaderReloadFail("the probe never reached its third capture");
+		}
+	}
+	if (!shaderReloadShotDir.empty() && shaderReloadFailed)
+	{
+		exitCode = 1;
+		running = false;
+	}
+
 	// --- dynamic-lines selfcheck (ORKIGE_LINES_SELFCHECK) ------------
 	// Two consumer surfaces over the one line mechanism: the authored
 	// LineComponent (self.line, reshaped every frame at a stable point count)
@@ -7248,6 +7413,24 @@ void PlayerSelfChecks::atLoopEnd(PlayerContext& context)
 		SDL_Log("orkige_player: PERSISTENT SELFCHECK FAILED - run ended in "
 			"phase %d", static_cast<int>(persistPhase));
 		exitCode = 1;
+	}
+	if (!shaderReloadShotDir.empty())
+	{
+		// put the shader file back no matter how the run ended - it lives in a
+		// scratch copy, but a half-edited copy would poison a rerun; the write
+		// is best-effort
+		if (!shaderReloadTargetPath.empty() && !shaderReloadOriginal.empty())
+		{
+			std::ofstream restore(shaderReloadTargetPath,
+				std::ios::binary | std::ios::trunc);
+			restore << shaderReloadOriginal;
+		}
+		if (!shaderReloadFailed && shaderReloadStep < 6)
+		{
+			SDL_Log("orkige_player: SHADER RELOAD SELFCHECK FAILED - run "
+				"ended at step %d", shaderReloadStep);
+			exitCode = 1;
+		}
 	}
 	if (hotreloadCheck)
 	{

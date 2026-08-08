@@ -1567,6 +1567,19 @@ namespace Orkige
 				  { { "file", "string",
 				      "the .omesh resource basename (e.g. 'tower.omesh')",
 				      true } } },
+				{ "reload_shaders",
+				  "Re-read every shader SOURCE FILE the RUNNING game's renderer "
+				  "builds from and rebuild: the next frame comes from the bytes "
+				  "on disk, with no restart. Takes no argument - a reload is "
+				  "'re-read the shader files'. What that reaches is per render "
+				  "flavor and named in Docs/materials.md; shader code a backend "
+				  "carries as a C++ string constant (the water and sky-dome "
+				  "programs) lives in no file and is never reloaded. The "
+				  "previous shaders do NOT survive the swap: a file that no "
+				  "longer compiles surfaces as a [remote] error naming the file "
+				  "and stage (visible in console_tail), not as a silent revert. "
+				  "Errors when no player is connected.",
+				  {} },
 				{ "screenshot_game",
 				  "Screenshot the RUNNING game's next rendered frame to 'path' "
 				  "(desktop play only; the path is on the player's filesystem, "
@@ -5258,6 +5271,28 @@ namespace Orkige
 			// failure, keeps the old geometry and logs a [remote] error visible
 			// in console_tail). Reuse the editor's own watcher path.
 			reloadRemoteMesh(*context.play, *context.console, file);
+			this->sendOk(req);
+			return;
+		}
+		if (type == "reload_shaders")
+		{
+			if (!context.play->client.isConnected())
+			{
+				this->sendErr(req, "no live player - start Play first");
+				return;
+			}
+			if (context.play->onBrowser)
+			{
+				this->sendErr(req, "reload_shaders cannot reach a browser "
+					"session - the page runs its packaged export snapshot; "
+					"stop, re-play and let the export pick the edit up");
+				return;
+			}
+			// fire-and-forget like reload_ui/reload_mesh, and payload-free:
+			// the player re-reads every shader source file its renderer builds
+			// from (or logs a [remote] error naming the file/stage, visible in
+			// console_tail). Reuse the editor's own send path.
+			reloadRemoteShaders(*context.play, *context.console);
 			this->sendOk(req);
 			return;
 		}
@@ -12037,6 +12072,19 @@ namespace Orkige
 				fs::remove_all(authRoot, authIgnored);
 				finish(false, "control self-test: reload_anim without a player "
 					"did not error");
+				return;
+			}
+			// reload_shaders takes NO argument, so "no live player" is the only
+			// thing standing between an agent and a silent no-op - it must
+			// answer an honest error, exactly like the file-carrying reloads
+			JsonValue shaderArgs = JsonValue::object();
+			bool shaderError = false;
+			if (!callTool("reload_shaders", shaderArgs, true, structured,
+				shaderError) || !shaderError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: reload_shaders without a "
+					"player did not error");
 				return;
 			}
 			SDL_Log("orkige_editor: control self-test - cook settings + "

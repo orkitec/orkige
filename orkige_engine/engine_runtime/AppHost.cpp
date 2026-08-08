@@ -21,6 +21,7 @@
 #include "engine_input/KeyEventData.h"
 #include "engine_sound/SoundManager.h"
 #include "engine_util/PlatformWindow.h"
+#include "engine_util/ShaderMediaDir.h"
 #include "engine_util/StringUtil.h"
 #include "core_debug/CVarManager.h"
 #include "core_debug/LogManager.h"
@@ -271,10 +272,15 @@ namespace Orkige
 		}
 #else
 		// the next flavor's Hlms shader templates are a baked default of its
-		// Engine sibling; bundled/exported runs point it at their own media
-		if (!config.hlmsMediaDir.empty())
+		// Engine sibling; bundled/exported runs point it at their own media,
+		// and ONE environment variable points it at a copy a run may edit
 		{
-			this->mEngine->setHlmsMediaDir(config.hlmsMediaDir);
+			const String hlmsDir = resolveShaderMediaDir(config.hlmsMediaDir,
+				std::getenv("ORKIGE_NEXT_HLMS_MEDIA_DIR"));
+			if (!hlmsDir.empty())
+			{
+				this->mEngine->setHlmsMediaDir(hlmsDir);
+			}
 		}
 #endif
 		// ORKIGE_SANCTIONED_OGRE_END

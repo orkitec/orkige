@@ -255,6 +255,7 @@ advertised set is the discoverable subset, not a hard limit.)
 | `reload_ui(file)` | hot-reload one declarative `.oui` screen on the RUNNING game — destroy-and-rebuild its widgets from the fresh file (`MSG_RELOAD_UI`); a parse failure keeps the OLD screen and surfaces a `[remote]` error, a rebuild emits the `ui.reloaded` script event. The editor's `.oui` watcher fires this on a file save too |
 | `reload_anim(file)` | hot-reload one vector-animation rig (`.oanim`) on the RUNNING game (`MSG_RELOAD_ANIM`): the player parses the fresh file FIRST, then rebuilds every `VectorAnimationComponent` playing it (clean cutover — playback restarts at each component's reflected `clip`); a parse failure keeps every OLD rig and surfaces a `[remote]` error naming the line, a rebuild emits the `animation.reloaded` script event. The editor's animation watcher fires this on a file save too (re-cooking a changed Lottie source first); after a `reimport_asset` during Play, call it yourself |
 | `reload_mesh(file)` | hot-reload one parametric mesh (`.omesh`) on the RUNNING game (`MSG_RELOAD_MESH`): the player parses the fresh text FIRST, then retires the old mesh resource and rebuilds every `ModelComponent` naming it (a mesh resource cannot be rewritten under live instances, so the instances go first); a parse failure keeps the OLD geometry on screen and surfaces a `[remote]` error naming the line. Author the text with `write_project_file` — no cook step. The editor's `.omesh` watcher fires this on a file save too |
+| `reload_shaders()` | re-read every shader SOURCE FILE the RUNNING game's renderer builds from and rebuild (`MSG_RELOAD_SHADERS`): the next frame comes from the bytes on disk, with no restart. Takes no argument — a reload is "re-read the shader files", and per-file granularity would need a vocabulary naming backend-internal template sets. What it reaches is per render flavor and named in `Docs/materials.md`; shader code a backend carries as a C++ string constant (the classic water and sky-dome programs) lives in no file and is never reloaded. The previous shaders do NOT survive the swap — a file that no longer compiles surfaces as a `[remote]` error naming the file and stage, not as a silent revert. No editor watcher fires this: shader files are ENGINE media and the project-tree watcher watches a project |
 | `screenshot_game(path)` | screenshot the RUNNING game's frame (`MSG_SCREENSHOT`, desktop play) → poll `get_state` (async: the file is written after the accepted reply, so this verb stays path-only — no inline image) |
 | `record_trace(path, seconds?, everyNth?, objects?)` | record a temporal TRACE of the RUNNING game to a `.jsonl` flight recorder (`MSG_RECORD_START`, desktop play) — per-frame object samples (pos/vel/active/visible + dt + `mem` process footprint) with contact/scene/error/warning events → poll `get_state` for `record_seq` |
 | `stop_recording()` | end an in-progress `record_trace` early (`MSG_RECORD_STOP`); the player writes what it captured → poll `get_state` |
@@ -954,8 +955,9 @@ WHERE:
   work over a browser link, each refusing with an honest error:
   `screenshot_game` and `record_trace` (the page's in-memory filesystem
   never reaches the editor's disk) and `reload_script`/`reload_ui`/
-  `reload_anim` (the page runs its packaged export snapshot — stop, re-play,
-  and the fresh export picks the edit up). Gated (`target_states:"gated"`) until the
+  `reload_anim`/`reload_mesh`/`reload_shaders` (the page runs its packaged
+  export snapshot — stop, re-play, and the fresh export picks the edit up).
+  Gated (`target_states:"gated"`) until the
   web-release preset built the wasm player.
 
 `list_play_targets` (a read) enumerates exactly what the editor's target picker

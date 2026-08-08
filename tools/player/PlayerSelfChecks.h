@@ -33,6 +33,8 @@ struct PlayerSelfChecks
 	bool rawInputCheck = false;
 	bool meshAssetCheck = false;
 	bool shapeColliderCheck = false;
+	//! the shader-file hot-reload probe (@see the perFrame block)
+	std::string shaderReloadShotDir;
 	bool vectorAnimCheck = false;
 	bool characterRigCheck = false;
 	bool rollerProgressionCheck = false;
@@ -283,6 +285,25 @@ struct PlayerSelfChecks
 	int meshProbeStep = 0;
 	unsigned long meshHideFrame = 0;
 	unsigned long meshPhaseDeadline = 0;
+	// --- ORKIGE_SHADER_RELOAD_SELFCHECK=<shot dir>: shader-file hot-reload end
+	// to end. The run reads its shader source files out of a COPY (the media
+	// override env var, resolved by engine_util/ShaderMediaDir.h) so nothing
+	// writes into the engine's own media. It captures the frame, copies an
+	// EDITED variant of one shader file over the original, calls the same
+	// RenderSystem::reloadShaderFiles the reload_shaders debug message runs,
+	// captures again, restores the file, reloads once more and captures a third
+	// time. The three frames are the verdict and the comparison is the driver's
+	// (pixels MOVED on the edit and RETURNED on the restore); the C++ side
+	// stays shader-agnostic - it copies bytes it was handed, so one probe
+	// serves both flavors.
+	std::string shaderReloadTargetPath;	//!< the shader file the run rewrites
+	std::string shaderReloadEditPath;	//!< the edited variant handed to it
+	std::string shaderReloadOriginal;	//!< its bytes as the run found them
+	std::string shaderReloadEdited;		//!< the edited bytes, read once
+	bool shaderReloadFailed = false;
+	//! step index, NOT a frame count: each step waits on the one before it
+	int shaderReloadStep = 0;
+	unsigned long shaderReloadStepFrame = 0;
 	// --- ORKIGE_SHAPECOLLIDER_SELFCHECK=1: shape colliders end to end against
 	// tests/projects/shapecollider (scenes/shapecollider.oscene). A dynamic ball
 	// drops into a STATIC concave U-cup collider (ST_SHAPE, default to the sibling

@@ -124,6 +124,20 @@ namespace Orkige
 		//! message that rides the ONE debug protocol; old players answer
 		//! "unknown command".
 		extern ORKIGE_CORE_DLL const String MSG_RELOAD_MESH;
+		//! @brief shader-file hot-reload: the editor tells the RUNNING player to
+		//! re-read EVERYTHING its renderer builds shaders from on disk and
+		//! rebuild. Payload-free on purpose - a reload is "re-read the shader
+		//! files", and per-file granularity would need a vocabulary naming
+		//! backend-internal template sets that no editor surface knows. What
+		//! that reaches is per flavor and documented in Docs/materials.md;
+		//! shader code the backend carries as C++ string constants is NOT in a
+		//! file and therefore never in scope. The player answers with an error
+		//! naming the file/stage when the re-read or the regeneration fails.
+		//! Player-directed like MSG_RELOAD_UI / MSG_RELOAD_MESH: the swap
+		//! happens at the player's message-drain point, never mid-frame. An
+		//! additive protocol-extension message that rides the ONE debug
+		//! protocol; old players answer "unknown command".
+		extern ORKIGE_CORE_DLL const String MSG_RELOAD_SHADERS;
 		//! @brief screenshot the RUNNING game: the editor asks the player to
 		//! capture its next rendered frame to FIELD_PATH (a path on the player's
 		//! filesystem - desktop play shares it with the editor). The player saves

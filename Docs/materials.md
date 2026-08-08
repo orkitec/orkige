@@ -223,6 +223,45 @@ content) are skipped by the accent quietly.
 - No occlusion/specular/detail maps, no UV transforms, no per-sub-mesh
   assignment.
 
+## Shader files reload live
+
+The look tier above is authored in `.omat` files, but the shading itself comes
+from shader SOURCE FILES the render backend reads off disk. Those reload on a
+running game the same way an `.omesh` or an `.oui` does: `MSG_RELOAD_SHADERS`,
+the MCP verb `reload_shaders`, applied at the player's message-drain point. Edit
+a shader file, reload, look at the next frame — no restart, no compile step.
+
+The verb takes no argument. A reload means "re-read the shader files": per-file
+granularity would need a vocabulary naming backend-internal template sets that no
+editor surface knows, and re-reading everything costs one regeneration.
+
+What that reaches, per flavor:
+
+| Flavor | Reloads | Does NOT reload |
+|--------|---------|-----------------|
+| next | the whole Hlms template tree — the PBS and Unlit templates plus their piece libraries, rooted at the run's Hlms media directory (`Hlms::reloadFrom` per registered Hlms: the folders are re-enumerated and the shader + pipeline-state caches cleared, so the next frame regenerates) | the datablock shader pieces this backend supplies from MEMORY — the water and mirror surfaces. They are C++ string constants, not files |
+| classic | the engine shader library `media/rtss/OrkigeLib_MetalRough.glsl`, which every generated surface shader pulls in as an `#include`. The generated programs are released and every scheme invalidated, so the next frame re-derives, re-writes and re-compiles, resolving the include from disk again | the hand-written water, refraction and sky-dome programs (C++ string constants in the backend, not files) and the bloom / output-grade programs, which are script-declared GPU programs on a separate resource road — a restart picks an edit in those up |
+
+Two honesty notes:
+
+- **The previous shaders do not survive the swap on either flavor.** What is
+  dropped is exactly the cache the old shaders lived in — that drop IS the
+  mechanism, because a library edit leaves the generated text unchanged and the
+  cached program would otherwise be reused and the new bytes never read. A file
+  that no longer compiles therefore surfaces as the backend's own error naming
+  the file and the stage on the next frame, not as a silent revert to the last
+  good shader.
+- **Shader files are ENGINE media, not project media**, so no editor watcher
+  fires this: the project-tree watcher watches a project. Trigger it explicitly.
+
+A run reads its shader files from the directory the host derived (a build-tree
+default, or the media a bundled/exported run carries). One environment variable
+per flavor points that somewhere else — `ORKIGE_NEXT_HLMS_MEDIA_DIR` and
+`ORKIGE_CLASSIC_RTSS_MEDIA_DIR`, both resolved through the one
+`engine_util/ShaderMediaDir.h` rule (a non-empty value wins whole; it is never
+merged with the host path). That is what lets a run read and edit a COPY of the
+shader tree without ever writing into the engine's own media.
+
 ## Image-based lighting (sky-sourced, opt-in)
 
 With `engine:setImageLighting(true, intensity)` (Lua; facade

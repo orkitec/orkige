@@ -30,6 +30,9 @@
 #include <OgreRenderSystem.h>
 #include <OgreResourceGroupManager.h>
 #include <OgreDataStream.h>
+#include <OgreArchive.h>
+#include <OgreHlms.h>
+#include <OgreHlmsManager.h>
 #include <algorithm>
 
 namespace Orkige
@@ -429,6 +432,67 @@ namespace Orkige
 		{
 			return false;	// not found in any group - honest miss
 		}
+	}
+	//---------------------------------------------------------
+	//! Every PBS/Unlit shader this backend runs is generated from the Hlms
+	//! TEMPLATE files registered at boot (NextBackend.cpp registerHlms, rooted
+	//! at the host's hlms media directory), so re-reading them is one call per
+	//! registered Hlms: reloadFrom re-enumerates the data folder AND the piece
+	//! library from the same archives - a FileSystem archive opens the real
+	//! file on every read, so the fresh bytes arrive by construction - and
+	//! clears the shader + pipeline-state caches, which is what makes the next
+	//! frame regenerate. The per-renderable Hlms hashes survive the swap, so
+	//! nothing above the backend has to be rebuilt.
+	//!
+	//! KEEP-OLD IS NOT POSSIBLE HERE: the caches the previous shaders lived in
+	//! are exactly what gets cleared, so a template that no longer compiles
+	//! surfaces as this backend's own generation error on the next frame
+	//! instead of silently reverting. Datablock shader pieces this backend
+	//! supplies from MEMORY (the water and mirror surfaces) are not files and
+	//! are untouched - Docs/materials.md states both.
+	bool RenderSystem::reloadShaderFiles(String & outError)
+	{
+		Ogre::HlmsManager* hlmsManager =
+			Ogre::Root::getSingleton().getHlmsManager();
+		if(hlmsManager == NULL)
+		{
+			outError = "the render backend has no Hlms manager";
+			return false;
+		}
+		bool anyReloaded = false;
+		for(int type = 0; type < Ogre::HLMS_MAX; ++type)
+		{
+			Ogre::Hlms* hlms =
+				hlmsManager->getHlms(static_cast<Ogre::HlmsTypes>(type));
+			// an unregistered slot, or the template-free low-level proxy
+			if(hlms == NULL || hlms->getDataFolder() == NULL)
+			{
+				continue;
+			}
+			try
+			{
+				Ogre::ArchiveVec library =
+					hlms->getPiecesLibraryAsArchiveVec();
+				hlms->reloadFrom(hlms->getDataFolder(), &library);
+				anyReloaded = true;
+			}
+			catch(Ogre::Exception const & error)
+			{
+				// name the template set that refused, plus the folder it was
+				// read from - the file is in there
+				outError = "Hlms '" + hlms->getTypeNameStr() + "' (" +
+					hlms->getDataFolder()->getName() + "): " +
+					error.getDescription();
+				return false;
+			}
+		}
+		if(!anyReloaded)
+		{
+			outError = "no Hlms template folder is registered - this run "
+				"builds no shaders from files";
+			return false;
+		}
+		return true;
 	}
 	//---------------------------------------------------------
 	RenderSystem::FrameStats RenderSystem::getFrameStats() const
