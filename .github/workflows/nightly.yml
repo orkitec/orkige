@@ -541,10 +541,18 @@ jobs:
           # release notes, so the check needs no state outside the release itself;
           # no marker and no release (the first night, or a hand-deleted one) mean
           # an empty predecessor, which reads as "build" and as "no lower bound".
+          # --repo is load-bearing: this step runs BEFORE any checkout, so gh
+          # has no git directory to infer the repository from - without it the
+          # read fails and an existing marker silently reads as "no
+          # predecessor" (a night of a 20-commit fallback changelog found it)
           prev=""
-          if gh release view nightly --json body --jq .body > prev_notes.txt 2> /dev/null; then
+          if gh release view nightly --repo "${GITHUB_REPOSITORY}" \
+              --json body --jq .body > prev_notes.txt; then
             prev=$(grep -oE 'orkige-nightly-commit: [0-9a-f]{7,40}' prev_notes.txt \
               | head -1 | awk '{print $2}')
+            echo "previous nightly marker: ${prev:-none in the release notes}"
+          else
+            echo "no readable rolling release - building with no predecessor (first night, or a deleted release)"
           fi
           # UNCHANGED-TREE SKIP: a scheduled run rebuilds only when tonight's green
           # commit differs from the predecessor. A MANUAL dispatch always builds -
@@ -1936,8 +1944,8 @@ jobs:
           # night has no rolling release to keep anything from, and that is a
           # night that retains nothing rather than a failure
           : > "${PREVIOUS_LIST}"
-          gh release view nightly --json assets --jq '.assets[].name' \
-            > "${PREVIOUS_LIST}" 2> /dev/null \
+          gh release view nightly --repo "${GITHUB_REPOSITORY}" \
+            --json assets --jq '.assets[].name' > "${PREVIOUS_LIST}" \
             || echo "no previous rolling release - nothing to keep"
           mkdir -p "${RETAINED}"
           wanted=$(python3 Util/orkige_nightly_package.py --plan-retention \
