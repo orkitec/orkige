@@ -514,9 +514,10 @@ behind `ORKIGE_BUILD_ENGINE`, ON for all app work).
   (`r.shadowQuality`, `r.iblQuality`, `r.planarReflection`, `r.staticScene`,
   `r.spriteBatching`) plus the live `water.*` look tier
   (`engine_render/RenderWaterTuning.h`: the mirror's weight, its
-  fresnel/albedo multipliers and each flavor's baked mirror sample knobs —
-  session-scoped, defaults byte-identical to the constants they replaced, one
-  re-apply road `RenderSystem::refreshWaterLook()`).
+  fresnel/albedo multipliers, the sun streak's angular reach and each flavor's
+  baked mirror sample knobs — session-scoped, defaults byte-identical to the
+  constants they replaced, one re-apply road
+  `RenderSystem::refreshWaterLook()`).
 - **`engine_gocomponent`** bridges core game objects to the scene:
   `TransformComponent`, `ModelComponent`, `SpriteComponent`,
   `SpriteAnimationComponent`, `ParticleComponent`, `VectorShapeComponent`,

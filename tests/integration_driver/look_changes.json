@@ -1,4 +1,33 @@
 {
   "note": "Declared look changes for the self-drift gate (run_self_drift_test.py, whose docstring is the reference). A commit that moves a captured pixel names the shot here with the sentence that explains it; a commit that moves none leaves this list EMPTY - which is the steady state. An entry is consumed by the landing it belongs to: once that commit is the previous green run its frames no longer move, the entry covers nothing, and the gate fails as STALE until it is removed. There are no permanent allowances. Entry keys: 'pattern' (an exact root-relative shot name, or a glob - '*' crosses '/', so 'render_facade/*' is the whole facade sweep and '*water*' every frame naming water), 'reason' (required, non-empty), 'flavors' (optional, ['classic'] or ['next'] when only one backend's frames move; both by default).",
-  "changes": []
+  "changes": [
+    {
+      "pattern": "lake/*",
+      "reason": "the water's sun streak reaches the near foreground: next adds the sibling's additive Blinn glint at the share its own fresnel gate withholds, so the streak no longer dies where the view turns steep",
+      "flavors": [
+        "next"
+      ]
+    },
+    {
+      "pattern": "mirrorlake/*",
+      "reason": "the same glint on the mirror vignette, whose low close camera is nearly all steep incidence: the rock-mirror band's mean delta reads 3 where it read 18, and its transmitted structure 0.79 sd / 0.56 gradient where it read 0.40 / 0.30",
+      "flavors": [
+        "next"
+      ]
+    },
+    {
+      "pattern": "web-lake/*",
+      "reason": "the browser-comparison capture of the lake carries the same glint (its recipe pins shadows off, never the water look)",
+      "flavors": [
+        "next"
+      ]
+    },
+    {
+      "pattern": "web-mirrorlake/*",
+      "reason": "the browser-comparison capture of the mirror vignette carries the same glint",
+      "flavors": [
+        "next"
+      ]
+    }
+  ]
 }

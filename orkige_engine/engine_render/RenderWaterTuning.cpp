@@ -85,6 +85,15 @@ namespace Orkige
 				"the water program's own shader literal is compiled in and "
 				"does not follow this knob",
 				&refreshWaterLook);
+			cvars.registerCVar(CVAR_SUN_GLINT_EXPONENT, CVarType::Float,
+				cvarToString(DEFAULT_SUN_GLINT_EXPONENT), CVAR_NONE,
+				"the sun streak's Blinn exponent - how far the glint reaches "
+				"across the surface (a lower value spreads it, a higher one "
+				"pins it to the mirror direction); the NEXT flavor only, baked "
+				"into its water shader piece - the classic water programs "
+				"carry the same number as a compiled-in literal and do not "
+				"follow this knob",
+				&refreshWaterLook);
 		}
 		//---------------------------------------------------------
 		float mirrorSpecular()
@@ -120,6 +129,13 @@ namespace Orkige
 		{
 			return clampedRead(CVAR_MIRROR_ROUGHNESS, DEFAULT_MIRROR_ROUGHNESS,
 				0.0f, 1.0f);
+		}
+		//---------------------------------------------------------
+		float sunGlintExponent()
+		{
+			return clampedRead(CVAR_SUN_GLINT_EXPONENT,
+				DEFAULT_SUN_GLINT_EXPONENT,
+				MIN_GLINT_EXPONENT, MAX_GLINT_EXPONENT);
 		}
 	}
 }

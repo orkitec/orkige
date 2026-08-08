@@ -651,6 +651,30 @@ the ripple lives entirely in the scrolling normal maps.
 This is a per-flavor LOOK, not a pixel-parity case (transparent lit content
 legitimately differs between the flavors).
 
+### The sun streak
+
+The glint the low sun draws across the ripples is ONE term on both flavors: a
+raw additive Blinn highlight against the ripple-tilted normal, exponent 420,
+added in display space after the atmosphere's fog — no fresnel gate, no
+shadow, no `NdotL`. That absence is what gives it its REACH: a physical
+specular fades where the view turns steep, which is exactly the near
+foreground of any water shot, and the streak has to sparkle on down to the
+bottom of the frame.
+
+classic evaluates it directly in its water programs. next's own sun specular
+is the PBS GGX lobe, which its specular fresnel gates down to the water F0
+(~0.02) at a steep view, so its water datablock carries a shader piece that
+adds the same Blinn term weighted by the share that gate withholds —
+`1 - fresnelS`, the library BRDF's own diffuse fresnel. At a grazing view the
+addition vanishes and the GGX lobe carries the streak; at a steep one the
+addition approaches full weight. One streak per fragment either way.
+
+Two knobs' worth of derivation sit behind it, both in
+`engine_render/RenderWaterTuning.h`: the exponent (live as
+`water.sunGlintExponent`) and the fraction of the shading ripple the streak's
+normal takes, which is the ratio between the classic program's streak weights
+and the detail-normal weights both flavors ripple with.
+
 ### Honest v1 boundaries (both flavors)
 
 - **No true depth-graded deep→shallow transmission.** Screen-space refraction
@@ -677,8 +701,9 @@ legitimately differs between the flavors).
 A handful of numbers in the reflective water look are neither authored per
 surface (`RenderWaterDesc` holds those) nor derivable from the scene: the
 mirror's weight, the laws that turn the authored strength/opacity into a
-fresnel F0 and a body albedo, and — on the next flavor — the sample sharpness
-and ripple distortion compiled into its planar-reflection shader piece. They
+fresnel F0 and a body albedo, the sun streak's angular reach, and — on the next
+flavor — the sample sharpness and ripple distortion compiled into its
+planar-reflection shader piece. They
 are LOOK constants, and they are live cvars, so the look is dialled in at
 runtime through any cvar door (the console, `MSG_SET_CVAR`, MCP `set_cvar`, an
 `ORKIGE_CVAR_*` boot seed) instead of recompiled. The names, defaults, clamp
@@ -693,6 +718,7 @@ RenderWaterTuning.h`, so the two flavors read the same vocabulary.
 | `water.mirrorLod` | 0.05 | 0…1 | the mirror sample's sharpness as a mip fraction, baked into the planar-reflection piece | next |
 | `water.mirrorDistort` | 0.09 | 0…1 | how far the ripple slope shifts the mirror sample, in planar UV units per unit of slope, baked into the same piece | next |
 | `water.mirrorRoughness` | 0.16 | 0…1 | the roughness the sky-mirror sample's environment LOD is derived from — the LOD lane only; the water program's own roughness literal is compiled in and does not follow this knob | classic |
+| `water.sunGlintExponent` | 420 | 1…8192 | the sun streak's Blinn exponent — its ANGULAR REACH across the surface (lower spreads it, higher pins it to the mirror direction), baked into the water shader piece; the classic water programs carry the same number as a compiled-in literal and do not follow this knob | next |
 
 Rules that hold here:
 

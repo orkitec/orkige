@@ -70,8 +70,8 @@ from run_benchmark_pixel_test import decode_png, pixel  # noqa: E402
 #: Max channel delta measured on the DEVELOPER pair (Metal against desktop GL):
 #:
 #:   lake        sky 0      terrain 2      water 6
-#:   mirrorlake  sky 0      shore 3        watermirror 5 left, 5 right
-#:               rockmirror 7              water_open 25
+#:   mirrorlake  sky 0      shore 3        watermirror 2 left, 0 right
+#:               rockmirror 3              water_open 6
 #:   lumens      sky 0.0    terrain 0.2    pools 0.1   foreground 0.2
 #:               (at the pinned equal lamp count - see the profile)
 #:
@@ -103,10 +103,10 @@ from run_benchmark_pixel_test import decode_png, pixel  # noqa: E402
 #: regression was 2.4x:
 #:
 #:   lake        water           sd 0.88 / grad 0.83
-#:   mirrorlake  watermirror_l   sd 1.92 / grad 1.74
-#:               watermirror_r   sd 1.90 / grad 1.54
-#:               rockmirror      sd 0.42 / grad 0.42
-#:               water_open      sd 5.06 / grad 1.04
+#:   mirrorlake  watermirror_l   sd 0.99 / grad 1.22
+#:               watermirror_r   sd 0.94 / grad 1.19
+#:               rockmirror      sd 0.79 / grad 0.56
+#:               water_open      sd 1.02 / grad 0.49
 #:
 #: The CI pair is a different software rasterizer on each side and measures
 #: its own numbers; a floor that has to move moves with the measurement
@@ -197,16 +197,22 @@ PROFILES = {
     # ridge occlusion applies to the mirrored sun, never to the glint. This gate
     # is what catches the glint collapsing when something narrows the lobe.
     #
-    # THE ONE OPEN SEAM this scene now measures is the glint's ANGULAR reach.
-    # Classic adds its Blinn streak as a raw additive term; the sibling's is a
-    # fresnel-gated GGX lobe, and this scene's low, close camera puts most of
-    # its water at STEEP incidence where fresnel is small. Same peak (251 vs
-    # 239 max luma down the streak column), very different breadth: classic
-    # holds 15.4% of the rock-mirror band above luma 150 against 0.7%, and 5.6%
-    # of the whole streak column against 0.9%. It is a specular-MODEL
-    # difference, not a mirror one - the same pair on the lake, whose camera
-    # looks low ACROSS the water at grazing incidence, agrees to 4/6/3 - and it
-    # sets the rock-mirror corridor below until one model moves.
+    # THE GLINT'S ANGULAR REACH is the same term on both flavors here. Classic
+    # adds a raw additive Blinn streak; the sibling's own sun specular is a
+    # fresnel-gated GGX lobe, which at this scene's STEEP incidence (a low,
+    # close camera) is gated down to the water F0 - so it adds classic's term
+    # weighted by the share its own gate withholds, (1 - fresnelS). The two
+    # peaks were always alike (251 against 239 max luma down the streak
+    # column); the BREADTH was the seam, and it closed: the rock-mirror band
+    # holds 8.1% of its pixels above luma 150 against classic's 15.6% where it
+    # held 0.7%, its mean delta reads 3 where it read 18, and its transmitted
+    # structure reads 0.79 sd / 0.56 gradient where it read 0.40 / 0.30. What
+    # is left is the composition's own residual: where fresnel is partial the
+    # sibling carries a wide GGX lobe AND the complement, so its streak spreads
+    # a little more smoothly than classic's sparkle chain. The lake framing,
+    # which looks low ACROSS the water at grazing incidence where the
+    # complement vanishes by construction, is unmoved and still agrees to
+    # 4/6/3.
     "mirrorlake.oscene": {
         "regions": {
             # direct bands: sky measures 0 today against the 8-9 record,
@@ -221,13 +227,14 @@ PROFILES = {
             # CI pair has not
             "watermirror_l": (0.08, 0.25, 0.40, 0.28, 15.0),
             "watermirror_r": (0.60, 0.25, 0.92, 0.28, 18.0),
-            # measures 18 (7 while a milky mirror sky was lifting this band
-            # into accidental agreement - the same band read 84.5 luma against
-            # classic's 88.0 then and 70.7 against 88.0 now). What it measures
-            # is the glint-breadth seam named above, in the one band that sits
-            # in the streak column on purpose; corridor at ~1.7x, to be brought
-            # back toward the other bands' single digits when a glint model moves
-            "rockmirror": (0.38, 0.38, 0.52, 0.50, 30.0),
+            # measures 3 (18 while the two flavors' sun glints spanned
+            # different angles - the band read 70.7 luma against classic's 88.0
+            # then and 84.7 against 88.0 now). It is the one band that sits in
+            # the streak column on purpose, so it is the band the glint moved;
+            # the corridor comes back to its neighbours' sizing - twice the
+            # larger of this pair's 3 and the 7 the CI pair records where this
+            # pair reads 0 - now that the models agree
+            "rockmirror": (0.38, 0.38, 0.52, 0.50, 16.0),
             # measures 6 - down from 25, the mirror-content seam being closed -
             # so this stops being the widest corridor in the file and joins the
             # lake water band's ~2.3x sizing over the worst of its own
@@ -248,10 +255,12 @@ PROFILES = {
             "watermirror_l": (0.55, 0.65),
             "watermirror_r": (0.55, 0.65),
             # the waterline rocks through the streak column: the band the
-            # glint-breadth seam lands in, so classic carries several times
-            # next's detail here by design of that seam and not of the mirror
-            # (measured sd 0.40 / grad 0.30)
-            "rockmirror": (0.22, 0.16),
+            # glint lands in, and the reading that moved with it - measured
+            # sd 0.79 / grad 0.56 where the two models' different reach read
+            # 0.40 / 0.30. Floors at the file's ~0.55x sizing; the residual
+            # under 1.0 is the sibling spreading the same streak a little more
+            # smoothly (see the scene note above)
+            "rockmirror": (0.43, 0.31),
             # the open lower water: measured sd 1.02 / grad 0.49. The sd says
             # the two transmitted images now hold the same amount of variation;
             # the gradient says next spreads it over lower frequencies - the

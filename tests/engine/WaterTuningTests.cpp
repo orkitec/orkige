@@ -24,7 +24,7 @@ namespace WaterTuning = Orkige::WaterTuning;
 
 namespace
 {
-	//! the tier's six names, in the order the doc lists them
+	//! the tier's names, in the order the doc lists them
 	char const * const kNames[] =
 	{
 		WaterTuning::CVAR_MIRROR_SPECULAR,
@@ -32,7 +32,8 @@ namespace
 		WaterTuning::CVAR_MIRROR_ALBEDO_SCALE,
 		WaterTuning::CVAR_MIRROR_LOD,
 		WaterTuning::CVAR_MIRROR_DISTORT,
-		WaterTuning::CVAR_MIRROR_ROUGHNESS
+		WaterTuning::CVAR_MIRROR_ROUGHNESS,
+		WaterTuning::CVAR_SUN_GLINT_EXPONENT
 	};
 
 	//! put the whole tier back on its defaults (the registry singleton lives
@@ -67,8 +68,9 @@ TEST_CASE("the water.* tier registers as session-scoped float knobs",
 	}
 
 	// the whole tier answers one prefix, so the console's `find water.` and the
-	// documentation list the same six knobs
-	CHECK(cvars.findByPrefix("water.").size() == 6u);
+	// documentation list the same knobs
+	CHECK(cvars.findByPrefix("water.").size() ==
+		sizeof(kNames) / sizeof(kNames[0]));
 }
 
 TEST_CASE("the water.* defaults reproduce the baked look constants exactly",
@@ -83,6 +85,12 @@ TEST_CASE("the water.* defaults reproduce the baked look constants exactly",
 	CHECK(WaterTuning::DEFAULT_MIRROR_LOD == 0.05f);
 	CHECK(WaterTuning::DEFAULT_MIRROR_DISTORT == 0.09f);
 	CHECK(WaterTuning::DEFAULT_MIRROR_ROUGHNESS == 0.16f);
+	// the streak's reach: the exponent the classic water programs carry as a
+	// shader literal, and the fraction of the shading ripple its normal takes
+	// (the ratio of those programs' streak weights to the detail weights both
+	// flavors ripple with) - both derived, neither a taste call
+	CHECK(WaterTuning::DEFAULT_SUN_GLINT_EXPONENT == 420.0f);
+	CHECK(WaterTuning::SUN_GLINT_RIPPLE_SCALE == 0.4655f);
 
 	// and the accessors hand back exactly those values - through the registry's
 	// canonical string round trip, which must not perturb a single bit
@@ -96,6 +104,8 @@ TEST_CASE("the water.* defaults reproduce the baked look constants exactly",
 	CHECK(WaterTuning::mirrorDistort() == WaterTuning::DEFAULT_MIRROR_DISTORT);
 	CHECK(WaterTuning::mirrorRoughness() ==
 		WaterTuning::DEFAULT_MIRROR_ROUGHNESS);
+	CHECK(WaterTuning::sunGlintExponent() ==
+		WaterTuning::DEFAULT_SUN_GLINT_EXPONENT);
 }
 
 TEST_CASE("an unregistered water.* tier still answers its defaults",
@@ -135,6 +145,8 @@ TEST_CASE("setting a water.* knob moves what the backends read",
 	CHECK(WaterTuning::mirrorDistort() == 0.4f);
 	REQUIRE(cvars.setString(WaterTuning::CVAR_MIRROR_ROUGHNESS, "0.6"));
 	CHECK(WaterTuning::mirrorRoughness() == 0.6f);
+	REQUIRE(cvars.setString(WaterTuning::CVAR_SUN_GLINT_EXPONENT, "120"));
+	CHECK(WaterTuning::sunGlintExponent() == 120.0f);
 
 	// a reset puts the shipped look back (the look-dev round trip)
 	resetTier();
@@ -159,6 +171,13 @@ TEST_CASE("water.* values outside their band are clamped, not refused",
 	CHECK(WaterTuning::mirrorDistort() == 0.0f);
 	REQUIRE(cvars.setString(WaterTuning::CVAR_MIRROR_ROUGHNESS, "4"));
 	CHECK(WaterTuning::mirrorRoughness() == 1.0f);
+
+	// the streak exponent has a band of its own: an exponent below 1 is not a
+	// lobe and one past the top is finer than the pixel grid resolves
+	REQUIRE(cvars.setString(WaterTuning::CVAR_SUN_GLINT_EXPONENT, "0"));
+	CHECK(WaterTuning::sunGlintExponent() == WaterTuning::MIN_GLINT_EXPONENT);
+	REQUIRE(cvars.setString(WaterTuning::CVAR_SUN_GLINT_EXPONENT, "100000"));
+	CHECK(WaterTuning::sunGlintExponent() == WaterTuning::MAX_GLINT_EXPONENT);
 
 	// a multiplier gets a generous band, and still a finite one
 	REQUIRE(cvars.setString(WaterTuning::CVAR_MIRROR_FRESNEL_SCALE, "1000"));

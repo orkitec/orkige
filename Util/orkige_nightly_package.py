@@ -4673,7 +4673,11 @@ exit 0
                            GH_TOKEN="not-a-token", ASSETS=arrived,
                            RETAINED=keep_dir,
                            PREVIOUS_LIST=os.path.join(temp, "previous.txt"),
-                           RETENTION=plan)
+                           RETENTION=plan,
+                           # the step names the repository explicitly (it runs
+                           # before any checkout on the runner), so the lifted
+                           # shell reads this the way every other job var is read
+                           GITHUB_REPOSITORY="orkitec/orkige")
             run = subprocess.run(["bash", "-c", keep_script], cwd=REPO_ROOT,
                                  env=environ, capture_output=True, text=True)
             assert run.returncode == 0, run.stdout + run.stderr

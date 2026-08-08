@@ -461,7 +461,7 @@ namespace Orkige
 		//! other per-instance markers.
 		bool gPlanarPostSteadySkipLogged = false;
 
-		//--- geometric water swell (vertex-stage displacement) ------------
+		//--- the water pass channel (the swell clock + the sun) ------------
 		//! the world-space swell frequency + phase rate BOTH flavors' water
 		//! vertex stages share (the classic program pushes the same numbers
 		//! through its waveParams constant), so the two flavors' swells move
@@ -472,32 +472,42 @@ namespace Orkige
 		//! surface shares the one clock; per-surface amplitude bakes into the
 		//! surface's own custom piece)
 		float gWaterSwellClock = 0.0f;
-		//! the swell-displaced water materials (waveHeight > 0) - while any
-		//! exist, the listener below publishes the clock into the pass buffer
-		std::set<String> gSwellWaterMaterials;
-		//! @brief appends the swell clock to every PBS pass buffer while the
-		//! swell is live: the water datablock's custom vertex piece reads
-		//! passBuf.orkigeWaterSwell.x as its phase. The member sits at the
-		//! STRUCT TAIL (custom_passBuffer inserts last), so shaders that do
-		//! not declare it read their smaller view of the same buffer safely.
-		class WaterSwellHlmsListener : public Ogre::HlmsListener
+		//! @brief THE WATER PASS CHANNEL: appends the surface's per-frame,
+		//! per-pass inputs to every PBS pass buffer while a water surface is
+		//! live - the swell clock the vertex piece phases its displacement by,
+		//! and the SUN the pixel piece rides its glint on. The members sit at
+		//! the STRUCT TAIL (custom_passBuffer inserts last), so shaders that do
+		//! not declare them read their smaller view of the same buffer safely.
+		//!
+		//! The sun travels HERE rather than through the pass light buffer for a
+		//! mechanical reason: a datablock's custom piece is parsed with the
+		//! DATABLOCK's property set, where pass properties (the light counts
+		//! among them) read as unset, so a piece cannot ask whether a
+		//! directional light exists. This channel answers instead - direction
+		//! plus a gate - which is also the sibling flavor's shape exactly: it
+		//! pushes `sunTowards` (w = the gate) and `sunColour` into its water
+		//! program from the same RenderBackend::firstDirectionalLight().
+		class WaterPassHlmsListener : public Ogre::HlmsListener
 		{
 		public:
 			void preparePassHash(const Ogre::CompositorShadowNode*,
 				bool /*casterPass*/, bool /*dualParaboloid*/,
 				Ogre::SceneManager*, Ogre::Hlms* hlms) override
 			{
-				// the property gates the piece's passBuf declaration; setting
-				// it recompiles the PBS set ONCE when the first swell surface
+				// the property gates the pieces' passBuf declaration; setting
+				// it recompiles the PBS set ONCE when the first water surface
 				// appears (cached afterwards)
 				hlms->_setProperty(Ogre::Hlms::kNoTid,
-					"orkige_water_swell", 1);
+					"orkige_water_pass", 1);
 			}
 			Ogre::uint32 getPassBufferSize(const Ogre::CompositorShadowNode*,
 				bool /*casterPass*/, bool /*dualParaboloid*/,
 				Ogre::SceneManager*) const override
 			{
-				return 16u;	// float4 orkigeWaterSwell (x = clock, yzw pad)
+				// three float4: the swell clock, the sun direction + gate, the
+				// sun colour - the order preparePassBuffer writes and both
+				// water pieces declare
+				return 48u;
 			}
 			float* preparePassBuffer(const Ogre::CompositorShadowNode*,
 				bool /*casterPass*/, bool /*dualParaboloid*/,
@@ -507,12 +517,40 @@ namespace Orkige
 				*passBufferPtr++ = 0.0f;
 				*passBufferPtr++ = 0.0f;
 				*passBufferPtr++ = 0.0f;
+				// the sun, WORLD space (the shader takes it to view space
+				// through passBuf.view); w gates the glint off when the scene
+				// holds no directional sun, exactly as the sibling's
+				// sunTowards.w does
+				if(Ogre::Light* sun = RenderBackend::firstDirectionalLight())
+				{
+					const Ogre::Vector3 towards = -sun->getDerivedDirection();
+					const Ogre::ColourValue colour = sun->getDiffuseColour();
+					*passBufferPtr++ = static_cast<float>(towards.x);
+					*passBufferPtr++ = static_cast<float>(towards.y);
+					*passBufferPtr++ = static_cast<float>(towards.z);
+					*passBufferPtr++ = 1.0f;
+					*passBufferPtr++ = colour.r;
+					*passBufferPtr++ = colour.g;
+					*passBufferPtr++ = colour.b;
+					*passBufferPtr++ = 1.0f;
+				}
+				else
+				{
+					*passBufferPtr++ = 0.0f;
+					*passBufferPtr++ = 1.0f;	// a valid direction, gated off
+					*passBufferPtr++ = 0.0f;
+					*passBufferPtr++ = 0.0f;	// the gate
+					*passBufferPtr++ = 0.0f;
+					*passBufferPtr++ = 0.0f;
+					*passBufferPtr++ = 0.0f;
+					*passBufferPtr++ = 1.0f;
+				}
 				return passBufferPtr;
 			}
 		};
-		WaterSwellHlmsListener gWaterSwellListener;
-		bool gWaterSwellListenerSet = false;
-		//--- end water swell ----------------------------------------------
+		WaterPassHlmsListener gWaterPassListener;
+		bool gWaterPassListenerSet = false;
+		//--- end the water pass channel -----------------------------------
 
 		//! apply the global wireframe state to one datablock (keeps the
 		//! datablock's other macroblock state - culling, depth - intact)
@@ -1043,6 +1081,10 @@ namespace Orkige
 		gWaterAnims.clear();		// datablocks die with the root
 		gWaterDescs.clear();		// datablocks die with the root
 		gRefractiveWaterMaterials.clear();	// datablocks die with the root
+		// the water pass channel's listener belonged to the Hlms that dies
+		// with the root, so the next boot installs it again on its first
+		// water surface
+		gWaterPassListenerSet = false;
 		gWireframe = false;
 		gShadowCasterCount = 0;		// late light handles no-op (system() gate)
 		gRenderTargets.clear();		// their workspaces died with the root
@@ -4531,8 +4573,16 @@ namespace Orkige
 		// sanctioned override route - @see the Terra Hlms pieces) and then defines
 		// its own; parseUndefPieces runs before collectPieces in parseCustomPiece,
 		// so the slot is free when ours lands. The PixelShader piece slot is
-		// independent of the swell VS piece, so the two coexist. Off/unsupported
-		// clears the piece (the glassy sky-mirror look).
+		// independent of the swell VS piece, so the two coexist.
+		//
+		// ONE SLOT, TWO JOBS: a datablock carries a SINGLE pixel-stage custom
+		// piece source, and this surface needs two - the mirror override (planar
+		// surfaces only) and the sun glint below (EVERY water surface). They
+		// accumulate into one source and one FILENAME carrying every baked
+		// value, so filename equality still implies content equality (the Hlms
+		// invariant the mirror tag already served).
+		String pixelPieces;
+		String pieceTag;
 		if(usePlanarReflection)
 		{
 			// the mirror-UV distortion scale (planar UV units per unit of
@@ -4676,17 +4726,134 @@ namespace Orkige
 				"@end\n";
 			char mirrorTag[96];
 			std::snprintf(mirrorTag, sizeof(mirrorTag),
-				"_mirror_%.5f_%.5f_ambfill0_piece_ps.any",
+				"_mirror_%.5f_%.5f_ambfill0",
 				distort, mirrorLod);
-			datablock->setCustomPieceCodeFromMemory(name + mirrorTag,
-				String(mirrorSource) + AMBIENT_NO_SKY_FILL,
-				Ogre::CustomPieceStage::PixelShader);
+			pixelPieces = String(mirrorSource) + AMBIENT_NO_SKY_FILL;
+			pieceTag = mirrorTag;
 		}
-		else
+
+		// THE SUN STREAK, the sibling's term reproduced under this flavor's
+		// shading model. What the classic water programs compute, per fragment,
+		// AFTER their fog and AFTER the display transfer (@see RenderSystemClassic
+		// WaterRefract_fs / WaterReflect_fs):
+		//
+		//   nrm     = normalize( swellNormal + the two detail normals' xy )
+		//   halfVec = normalize( viewDir + towardsSun )
+		//   spec    = pow( saturate( dot( nrm, halfVec ) ), 420 )
+		//   colour += sqrt( sunColour ) * spec        // display space, un-gated
+		//
+		// It is a RAW ADDITIVE Blinn term: no fresnel, no shadow, no NdotL. This
+		// flavor's own sun specular is the library BRDF's GGX lobe, which the
+		// specular fresnel gates - and at a STEEP view (the near foreground of
+		// any water shot) that gate is the water F0, ~0.02, so the streak dies
+		// mid-distance where the sibling's sparkles on to the bottom of the
+		// frame. The lobes differ too: GGX at the shared water roughness 0.16 is
+		// a Blinn exponent of 2/a^2 - 2 ~ 3050 (a = roughness^2), seven times
+		// tighter than 420.
+		//
+		// So this piece adds the sibling's term, weighted by the share this
+		// flavor's own gate withholds - (1 - fresnelS), which is exactly the
+		// library BRDF's fresnelD. At a grazing view fresnelS -> 1 and the
+		// addition vanishes, leaving the GGX lobe that already agrees with the
+		// sibling there (the lake framing measures 4/6/3 on its water band);
+		// at a steep view it approaches 1 and the surface carries the sibling's
+		// full streak. One streak per fragment either way - never two.
+		//
+		// Three more term-for-term matches:
+		//  * the SPACE. The sibling adds in DISPLAY space, after its own sqrt;
+		//    this piece runs in custom_ps_posExecution, which the platform pixel
+		//    shaders insert AFTER the body wrote outPs_colour0 = sqrt(finalColour)
+		//    - the same transfer, the same side of it.
+		//  * the ORDER. Both add the streak after atmospheric fog, so a fogged
+		//    distance dims the water body and not the glint riding on it.
+		//  * the NORMAL. The sibling evaluates the streak against a CALMER
+		//    ripple than it shades with - detail weights 0.625/0.375 against the
+		//    1.35/0.8 both flavors ripple at - so the deviation of pixelData.normal
+		//    from the geometric (swell) normal is taken at that same fraction
+		//    (WaterTuning::SUN_GLINT_RIPPLE_SCALE).
+		// The sun arrives on the water pass channel, filled from the SAME
+		// RenderBackend::firstDirectionalLight() the sibling pushes into its
+		// program - direction, linear diffuse colour and the exists-gate
+		// (@see WaterPassHlmsListener).
 		{
-			datablock->setCustomPieceCodeFromMemory(String(), String(),
-				Ogre::CustomPieceStage::PixelShader);
+			// live through `water.sunGlintExponent`, baked into the piece (and
+			// into its filename) like the mirror's LOD; the default IS the
+			// classic programs' literal, so an untouched run is byte-stable
+			const float glintExponent = WaterTuning::sunGlintExponent();
+			const float glintRipple = WaterTuning::SUN_GLINT_RIPPLE_SCALE;
+			char glintSource[3072];
+			std::snprintf(glintSource, sizeof(glintSource),
+				// A DATABLOCK CUSTOM PIECE IS PARSED WITH THE DATABLOCK'S OWN
+				// PROPERTY SET, so a guard here can only ask what the MATERIAL
+				// knows: `!hlms_shadowcaster` (the caster shader declares no
+				// pixelData and must never see this) and the water pass channel's
+				// own property below. Pass properties - hlms_lights_directional,
+				// hlms_prepass, hw_gamma_write - read as UNSET here, which is
+				// exactly why the sun arrives through the water pass channel
+				// instead of the light buffer: this piece never asks whether a
+				// light exists, it reads a channel that answers with a gate.
+				// One line per guard: the parser reads it to the closing bracket
+				// on the same line.
+				"@property( !hlms_shadowcaster && orkige_water_pass )\n"
+				// the water pass channel, declared in the SAME order the listener
+				// writes it (@see WaterPassHlmsListener); the vertex piece declares
+				// the identical tail for its own stage
+				"@piece( custom_passBuffer )\n"
+				"\tfloat4 orkigeWaterSwell;\n"
+				"\tfloat4 orkigeWaterSun;\n"
+				"\tfloat4 orkigeWaterSunColour;\n"
+				"@end\n"
+				"@piece( custom_ps_posExecution )\n"
+				// everything below is VIEW space: the sun arrives in WORLD space and
+				// rides the pass view matrix, the same road the swell vertex piece
+				// takes its world normal
+				"\tfloat3 orkGlintSun = normalize( float3( mul(\n"
+				"\t\tmidf3_c( passBuf.orkigeWaterSun.xyz ),\n"
+				"\t\ttoMidf3x3( passBuf.view ) ) ) );\n"
+				"\tfloat3 orkGlintView = float3( pixelData.viewDir );\n"
+				"\tfloat3 orkGlintHalf = normalize( orkGlintSun + orkGlintView );\n"
+				"\tfloat3 orkGlintGeom = float3( pixelData.geomNormal );\n"
+				"\tfloat3 orkGlintNormal = normalize( orkGlintGeom\n"
+				"\t\t+ ( float3( pixelData.normal ) - orkGlintGeom ) * %.4ff );\n"
+				"\tfloat orkGlintSpec = pow( saturate( dot( orkGlintNormal,\n"
+				"\t\torkGlintHalf ) ), %.2ff );\n"
+				// the share the library BRDF's specular fresnel withholds, from
+				// the same Schlick expression it evaluates (getSpecularFresnel)
+				"\tfloat orkGlintVdotH = clamp( dot( orkGlintView, orkGlintHalf ),\n"
+				"\t\t0.001, 1.0 );\n"
+				"\t@property( fresnel_scalar )\n"
+				"\t\tfloat orkGlintF0 = float( max3( pixelData.F0.x, pixelData.F0.y,\n"
+				"\t\t\tpixelData.F0.z ) );\n"
+				"\t@else\n"
+				"\t\tfloat orkGlintF0 = float( pixelData.F0 );\n"
+				"\t@end\n"
+				"\tfloat orkGlintGate = 1.0 - ( orkGlintF0\n"
+				"\t\t+ pow( 1.0 - orkGlintVdotH, 5.0 ) * ( 1.0 - orkGlintF0 ) );\n"
+				// the sun's LINEAR radiance through the display transfer, exactly
+				// as the sibling adds sqrt(sunColour); .w is its "a directional sun
+				// exists" gate, the sibling's sunTowards.w
+				"\tfloat3 orkGlint = sqrt( max( passBuf.orkigeWaterSunColour.xyz,\n"
+				"\t\tfloat3( 0.0, 0.0, 0.0 ) ) )\n"
+				"\t\t* ( orkGlintSpec * orkGlintGate * passBuf.orkigeWaterSun.w );\n"
+				// DISPLAY space, where the body already went through the shader's own
+				// sqrt - the same side of the same transfer the sibling adds on. (A
+				// hardware-gamma target would want the linear equivalent of the same
+				// displayed delta, g*(g + 2*sqrt(c)); this flavor's water renders into
+				// the LDR target the body's own sqrt writes, and the property that
+				// would say otherwise is a PASS property this piece cannot read.)
+				"\toutPs_colour0.xyz += orkGlint;\n"
+				"@end\n"
+				"@end\n",
+				glintRipple, glintExponent);
+			char glintTag[64];
+			std::snprintf(glintTag, sizeof(glintTag), "_glint_%.4f_%.2f",
+				glintRipple, glintExponent);
+			pixelPieces += glintSource;
+			pieceTag += glintTag;
 		}
+		datablock->setCustomPieceCodeFromMemory(
+			name + pieceTag + "_piece_ps.any", pixelPieces,
+			Ogre::CustomPieceStage::PixelShader);
 
 		// TWO detail normal maps carry the ripple: same tiling water normal,
 		// bound to both detail slots and scrolled in different directions/
@@ -4789,9 +4956,14 @@ namespace Orkige
 				const float a4x = 0.47f * 3.71f * k1, a4z = 0.91f * 3.71f * k1;
 				char source[2560];
 				std::snprintf(source, sizeof(source),
-					"@property( orkige_water_swell )\n"
+					"@property( orkige_water_pass )\n"
+					// the water pass channel, in the order the listener writes it
+					// (@see WaterPassHlmsListener) - this stage reads the clock, the
+					// pixel stage the sun, and both declare the same tail
 					"@piece( custom_passBuffer )\n"
 					"\tfloat4 orkigeWaterSwell;\n"
+					"\tfloat4 orkigeWaterSun;\n"
+					"\tfloat4 orkigeWaterSunColour;\n"
 					"@end\n"
 					"@piece( custom_vs_preTransform )\n"
 					"\tfloat orkP = passBuf.orkigeWaterSwell.x;\n"
@@ -4839,23 +5011,21 @@ namespace Orkige
 				datablock->setCustomPieceCodeFromMemory(
 					name + swellTag + "_piece_vs.any", source,
 					Ogre::CustomPieceStage::VertexShader);
-				gSwellWaterMaterials.insert(name);
-				if(!gWaterSwellListenerSet)
-				{
-					pbs->setListener(&gWaterSwellListener);
-					gWaterSwellListenerSet = true;
-				}
 			}
 			else
 			{
 				datablock->setCustomPieceCodeFromMemory(String(), String(),
 					Ogre::CustomPieceStage::VertexShader);
-				gSwellWaterMaterials.erase(name);
-				if(gSwellWaterMaterials.empty() && gWaterSwellListenerSet)
-				{
-					pbs->setListener(NULL);
-					gWaterSwellListenerSet = false;
-				}
+			}
+			// THE WATER PASS CHANNEL stands up with the FIRST water surface and
+			// stays for the scene: both water pieces declare its tail, and a
+			// declared member the listener no longer writes would read whatever
+			// the buffer happened to hold. It costs three float4 per pass and
+			// dies with the backend (@see WaterPassHlmsListener).
+			if(!gWaterPassListenerSet)
+			{
+				pbs->setListener(&gWaterPassListener);
+				gWaterPassListenerSet = true;
 			}
 		}
 
