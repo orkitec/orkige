@@ -474,13 +474,15 @@ jobs:
   # Why an API query and not a `workflow_run` trigger: workflow_run fires once
   # per CI completion, i.e. on every push - that would build and republish
   # desktop binaries many times a day for no benefit, and it cannot be put on a
-  # schedule. One scheduled query gives exactly one build a day from the last
-  # proven-green commit, and reports honestly when there is none.
+  # schedule. One scheduled query gives exactly one build a day whenever main
+  # moved since the last published nightly - and main is green BY CONSTRUCTION
+  # (branch protection, admins bound, refuses an unverified push; the
+  # fast-forward preserves the SHA the verdicts ride on), so greenness is
+  # protection's job and never re-derived here.
   #
-  # An amber verdict is a SKIP, not a failure: a red main is already reported by
-  # ci.yml, and failing here too would only duplicate the alarm.
+  # A skip is a SKIP, not a failure: an unmoved main is the normal quiet night.
   binaries-gate:
-    name: Binaries gate - the last CI run on main must be green
+    name: Binaries gate - build when main moved (green by protection)
     if: github.event_name == 'schedule' || inputs.run_binaries
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -503,7 +505,7 @@ jobs:
       # the version, so the archive entry and its title name one day
       dated_tag: ${{ steps.identity.outputs.dated_tag }}
     steps:
-      - name: Read the required checks on main's head
+      - name: Build when main moved
         id: probe
         env:
           GH_TOKEN: ${{ github.token }}
@@ -511,56 +513,28 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -uo pipefail
-          # main never runs the CI workflow: the fast-forward moves the branch
-          # pointer with the workflow token, which triggers nothing, and the
-          # verdicts travel ON the commit as check runs from its development
-          # matrix. So the green question is asked of the HEAD COMMIT's own
-          # check runs. The protection's required-context list would be the
-          # ideal reference, but a workflow token CANNOT read branch
-          # protection (admin scope - proven by one night of silently skipped
-          # binaries), so the gate reads what it can and holds two honest
-          # bars: NO check run concluded badly, and ENOUGH succeeded that a
-          # thin or empty check set can never read green (the matrix carries
-          # ~16 verdicts; the floor sits safely below that and far above
-          # zero). gh + jq ship on every hosted runner.
-          # a once-a-day gate must not lose a night to one API blip: each
-          # query gets three attempts, 30s apart, before the fail-closed skip
-          api_retry() {
-            for attempt in 1 2 3; do
-              if gh api "$@"; then return 0; fi
-              [ "$attempt" -lt 3 ] && { echo "query attempt ${attempt} failed - retrying in 30s" >&2; sleep 30; }
-            done
-            return 1
-          }
-          sha=$(api_retry "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha') \
-            || { echo "::warning::could not resolve main after three attempts - skipping the binaries this night; the next green night builds the backlog"; echo "green=false" >> "$GITHUB_OUTPUT"; exit 0; }
-          api_retry "repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs?per_page=100" --paginate \
-            --jq '.check_runs[] | "\(.conclusion)\t\(.name)"' > checks.txt \
-            || { echo "::warning::could not read the check runs after three attempts - skipping the binaries this night; the next green night builds the backlog"; echo "green=false" >> "$GITHUB_OUTPUT"; exit 0; }
-          bad=$(grep -cE '^(failure|cancelled|timed_out|action_required)\t' checks.txt || true)
-          good=$(grep -cE '^success\t' checks.txt || true)
-          # the floor IS the required-context count (branch protection's 16):
-          # a matrix reshape that changes how many verdicts land on a commit
-          # updates this number in the same change, the way benchmark budgets
-          # move with the code - a floor nobody derived guards nothing
-          floor=16
+          # main is green BY CONSTRUCTION: branch protection (admins bound)
+          # refuses any push whose commit does not carry all required
+          # verdicts, and the fast-forward preserves the SHA those verdicts
+          # are attached to. Re-deriving greenness here would duplicate
+          # GitHub's own enforcement with weaker eyesight - a probe of that
+          # shape silently skipped binaries for a week and then failed four
+          # more ways in a day. So the gate asks the ONE question protection
+          # cannot answer: has main MOVED since the last published nightly?
+          # (A deliberate protection-off hand-push is the owner's conscious
+          # override and ships as such.) The resolve gets three attempts,
+          # 30s apart - a once-a-day gate must not lose a night to one API
+          # blip; a lost night self-heals, the next run builds the backlog.
+          sha=""
+          for attempt in 1 2 3; do
+            sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha') && break
+            [ "$attempt" -lt 3 ] && { echo "resolve attempt ${attempt} failed - retrying in 30s"; sleep 30; }
+          done
+          [ -n "$sha" ] \
+            || { echo "::warning::could not resolve main after three attempts - skipping the binaries this night; the next run builds the backlog"; echo "green=false" >> "$GITHUB_OUTPUT"; exit 0; }
           green=true
-          reason=""
-          if [ "${bad}" != "0" ]; then
-            green=false
-            reason="${bad} check run(s) concluded badly: $(grep -E '^(failure|cancelled|timed_out|action_required)\t' checks.txt | cut -f2 | sort -u | paste -sd ',' -)"
-          elif [ "${good}" -lt "${floor}" ]; then
-            green=false
-            reason="only ${good} successful check run(s) on the head (floor ${floor}) - a commit without its matrix verdicts is unverified, not green"
-          fi
-          if [ "$green" = "true" ]; then
-            echo "${good} successful check runs, none bad, on ${sha}"
-          else
-            echo "not green on ${sha}: ${reason}"
-            echo "::warning::main's head ${sha} is not green (${reason}) - skipping the binaries; a red tree is never published"
-          fi
-          verdict="check runs on $(printf '%.9s' "${sha}"): $([ "$green" = "true" ] && echo "${good} green, none bad" || echo "${reason}")"
-          skipped_reason="main's head is not green (\`${reason:-none}\`)"
+          verdict="main at $(printf '%.9s' "${sha}") (green by protection)"
+          skipped_reason=""
           # THE MARKER, read once and used TWICE: the commit the standing nightly
           # was built from is both the unchanged-tree comparison below and the
           # changelog's lower bound in the build and publish jobs. It lives in the
