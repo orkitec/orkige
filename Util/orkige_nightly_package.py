@@ -35,6 +35,10 @@ the other Util/ generators).
 
     orkige_nightly_package.py --verify-checksums <assets dir>
 
+    orkige_nightly_package.py --plan-retention --assets <dir>
+                              --previous-assets <listing file>
+                              [--retention-out <file>]
+
     orkige_nightly_package.py --selftest [--selftest-dmg] [--selftest-appimage]
 
 This packages what a preset build tree ALREADY produced - it never builds. The
@@ -474,6 +478,14 @@ def version_filename_token(version):
     semantic-versioning character at all, so the token reads back to the SAME
     version with no ambiguity (VersionOrder::parse accepts both)."""
     return (version or "").replace("+", "_")
+
+
+def version_from_filename_token(token):
+    """the token read BACK to the version it renders. Semantic versioning
+    allows only alphanumerics, "." and "-" outside the build-metadata marker,
+    so every "_" in a token came from a "+" and the reading is exact - which is
+    what lets an asset name found on a release name the version it carries."""
+    return (token or "").replace("_", "+")
 
 
 # --- the dated archive releases --------------------------------------------
@@ -3473,6 +3485,180 @@ def verify_appimage(appimage_path, commit="", version="",
     return reported
 
 
+# --- retaining a platform's last good assets --------------------------------
+#
+# The rolling `nightly` release is REPLACED WHOLESALE every night, which is
+# what keeps its download URLs identical from one night to the next. Replaced
+# wholesale also means a platform whose build failed would disappear from the
+# download page entirely, taking the last binaries it did produce with it: one
+# lost runner and there is nothing at all to download for that platform until
+# the next green night.
+#
+# So the rolling release RETAINS. A platform that produced no fresh artifact
+# tonight keeps the assets it carried before - sidecars and all - and the notes
+# table names the older version those still carry beside the fact that
+# tonight's build for it failed.
+#
+# Four rules bound it, and each is a property the self-check asserts:
+#
+# - Only the ROLLING release retains. The dated `nightly-YYYYMMDD` release is
+#   the archive of ONE night, so an asset from another night inside it would
+#   claim that night built something it did not.
+# - The `orkige-nightly-commit:` marker stays TONIGHT's commit. The gate reads
+#   it to decide whether main moved since the last published nightly, so a kept
+#   asset must never freeze it - a frozen marker skips every following night.
+# - A retained asset travels with its own `.sha256` sidecar, byte for byte as
+#   published. The sidecar is the download's whole integrity story, and one
+#   recomputed here would attest to bytes this job never saw.
+# - The DESKTOP editors are what is retained. A device player payload is
+#   resolved by a released editor off the DATED release its own version names
+#   (EditorPayloads::payloadReleaseTag), never off the rolling one, so the
+#   release that carries a payload is the night that built it and no later
+#   night replaces it. A copy in the rolling release would be a file nothing
+#   ever resolves, while "no player was published for this build" is both true
+#   and exactly what the editor itself says.
+#
+# The decision is PURE: it reads two lists of asset NAMES - what arrived
+# tonight and what the previous rolling release carried - and answers which
+# rows keep which files. Nothing here downloads anything; the workflow does
+# that, from the list this produces.
+
+#: the rows retention reasons about, in the order the notes table prints them
+RETAINED_ROWS = PLATFORMS
+
+
+def platform_asset_suffixes(platform):
+    """every filename suffix ONE desktop platform publishes under - the
+    installable artifact and the portable archive - from the same constants
+    that compose those names"""
+    installable = {"macos": DMG_SUFFIX,
+                   "linux": APPIMAGE_SUFFIX,
+                   "windows": INSTALLER_SUFFIX}[platform]
+    return (installable, ARCHIVE_SUFFIX[platform])
+
+
+def release_asset_identity(name):
+    """(row, version token) for one published asset name, and ("", "") for
+    anything that is not one platform's own artifact - the full-history
+    CHANGELOG.md, a checksum sidecar, a device player payload, a stranger
+    somebody attached by hand. This is the grammar artifact_name / dmg_name /
+    installer_name / appimage_name compose, read backwards, so a name they
+    could not have produced is never claimed for a platform."""
+    name = (name or "").strip()
+    if not name or name.endswith(CHECKSUM_SUFFIX):
+        return "", ""
+    for platform in RETAINED_ROWS:
+        prefix = "Orkige-%s-" % platform
+        if not name.startswith(prefix):
+            continue
+        for suffix in platform_asset_suffixes(platform):
+            if not name.endswith(suffix):
+                continue
+            token = name[len(prefix):len(name) - len(suffix)]
+            if token:
+                return platform, token
+    return "", ""
+
+
+def token_order_key(token):
+    """what orders two filename tokens of one platform: the 8-digit date the
+    ordered version carries, then the token itself. Only ever asked when a
+    previous release carried more than one build of one platform, which a
+    normal night never produces - but a plan must be deterministic even then,
+    and the newest build is the one worth keeping."""
+    match = re.search(r"\.(\d{8})(?:[_+]|$)", token or "")
+    return (int(match.group(1)) if match else 0, token or "")
+
+
+class RetainedRow:
+    """one row of the release table: whether it produced tonight, the version
+    token its assets carry, and - when it did not produce - the previous
+    release's asset names to carry over."""
+
+    def __init__(self, key, fresh, token, assets=()):
+        self.key = key
+        self.fresh = fresh
+        self.token = token
+        self.assets = tuple(assets)
+
+    @property
+    def version(self):
+        """the ordered version the token renders, for a human to read"""
+        return version_from_filename_token(self.token)
+
+
+def retention_plan(fresh_names, previous_names):
+    """which rows tonight produced and which keep what they published before.
+
+    Both arguments are lists of asset NAMES: what arrived from tonight's build
+    jobs, and what the previous rolling release carried. Returns one
+    RetainedRow per row that has assets either way, in table order. A row that
+    produced tonight retains nothing - a fresh build replaces its predecessor,
+    which is the whole point of a rolling release."""
+    fresh_rows = {}
+    for name in fresh_names:
+        key, token = release_asset_identity(name)
+        if key:
+            fresh_rows.setdefault(key, token)
+    sidecars = {name for name in previous_names
+                if name.endswith(CHECKSUM_SUFFIX)}
+    published = {}
+    for name in previous_names:
+        key, token = release_asset_identity(name)
+        if key:
+            published.setdefault(key, {}).setdefault(token, []).append(name)
+    rows = []
+    for key in RETAINED_ROWS:
+        if key in fresh_rows:
+            rows.append(RetainedRow(key, True, fresh_rows[key]))
+            continue
+        builds = published.get(key) or {}
+        if not builds:
+            continue            # nothing built tonight and nothing to keep
+        token = max(builds, key=token_order_key)
+        assets = []
+        for name in sorted(builds[token]):
+            assets.append(name)
+            if name + CHECKSUM_SUFFIX in sidecars:
+                assets.append(name + CHECKSUM_SUFFIX)
+        rows.append(RetainedRow(key, False, token, assets))
+    return rows
+
+
+def retention_document(rows):
+    """the plan as `key=value` lines - the same shape --identity prints,
+    because the publish job reads it the same way: the rows that keep their
+    last build, the flat list of asset names to download for them, and each
+    row's kept version in both renderings (the token names the files, the
+    version is what the notes table shows a reader)."""
+    keep = [row for row in rows if not row.fresh]
+    lines = ["retain_rows=" + " ".join(row.key for row in keep),
+             "retain_assets=" + " ".join(name for row in keep
+                                         for name in row.assets)]
+    for row in keep:
+        lines.append("retain_%s_token=%s" % (row.key, row.token))
+        lines.append("retain_%s_version=%s" % (row.key, row.version))
+    return "".join(line + "\n" for line in lines)
+
+
+def read_asset_names(source):
+    """the asset names to reason about, from a DIRECTORY of files (tonight's
+    downloads) or from a text FILE listing one name per line (what a release
+    query printed). Neither existing is an empty list, not a failure: a first
+    night has no predecessor, and a night that produced nothing is caught by
+    the publish job's own count rather than here."""
+    source = (source or "").strip()
+    if not source:
+        return []
+    if os.path.isdir(source):
+        return sorted(name for name in os.listdir(source)
+                      if os.path.isfile(os.path.join(source, name)))
+    if os.path.isfile(source):
+        with open(source, "r", errors="replace") as handle:
+            return [line.strip() for line in handle if line.strip()]
+    return []
+
+
 # --- entry point -----------------------------------------------------------
 
 def main():
@@ -3580,6 +3766,22 @@ def main():
     parser.add_argument("--verify-checksums", default="",
                         help="check every archive in a directory of release "
                              "assets against its %s file" % CHECKSUM_SUFFIX)
+    parser.add_argument("--plan-retention", action="store_true",
+                        help="decide which platforms keep the assets they "
+                             "published before, because tonight's build for "
+                             "them produced none: prints the plan as "
+                             "`key=value` lines. The ROLLING release alone "
+                             "retains - the dated one is one night's archive")
+    parser.add_argument("--assets", default="",
+                        help="the directory tonight's artifacts arrived in "
+                             "(--plan-retention)")
+    parser.add_argument("--previous-assets", default="",
+                        help="a file listing the previous rolling release's "
+                             "asset names, one per line (--plan-retention); "
+                             "no file means no predecessor, which retains "
+                             "nothing")
+    parser.add_argument("--retention-out", default="",
+                        help="write the retention plan to this file too")
     parser.add_argument("--selftest", action="store_true",
                         help="run the packaging self-checks and exit")
     parser.add_argument("--selftest-dmg", action="store_true",
@@ -3671,6 +3873,18 @@ def main():
         return
     if args.verify_checksums:
         verify_checksums(args.verify_checksums)
+        return
+    if args.plan_retention:
+        # the pure decision, printed for the publish job to carry out: which
+        # rows kept nothing tonight, and which files of theirs the rolling
+        # release should carry over from its predecessor
+        document = retention_document(
+            retention_plan(read_asset_names(args.assets),
+                           read_asset_names(args.previous_assets)))
+        if args.retention_out:
+            with open(args.retention_out, "w") as handle:
+                handle.write(document)
+        print(document, end="")
         return
     if not args.platform:
         parser.error("--platform is required")
@@ -4243,6 +4457,265 @@ def selftest():
         except SystemExit:
             pass
 
+    # --- keeping a failed platform's last good assets ---------------------
+    # The rolling release is replaced wholesale, so whatever it does not carry
+    # is gone from the download page. This is the decision that keeps a
+    # platform whose build failed from losing the binaries it did produce -
+    # pure, over two lists of asset NAMES, deciding nothing else.
+    tonight = "2.0.0-nightly.20260731+bbbbbbbbb"
+    yesterday = "2.0.0-nightly.20260730+aaaaaaaaa"
+    older = "2.0.0-nightly.20260728+ccccccccc"
+
+    def published_names(platform, version, sidecars=True):
+        """every asset ONE platform publishes for ONE build, from the same
+        composers the packaging names them with - so the reader below is
+        pinned to the writer rather than to a spelling repeated here"""
+        composers = {"macos": (dmg_name, artifact_name),
+                     "linux": (appimage_name, artifact_name),
+                     "windows": (installer_name, artifact_name)}[platform]
+        names = []
+        for compose in composers:
+            name = compose(platform, "", version)
+            names.append(name)
+            if sidecars:
+                names.append(name + CHECKSUM_SUFFIX)
+        return names
+
+    # the grammar, read backwards: every name the packaging composes reports
+    # the platform it belongs to and the version token it carries
+    for platform in PLATFORMS:
+        for name in published_names(platform, tonight, sidecars=False):
+            assert release_asset_identity(name) == \
+                (platform, version_filename_token(tonight)), name
+    # ... and the token reads back to the version it renders, exactly: that is
+    # what lets a name found on a release NAME the build it belongs to
+    for version in (tonight, yesterday, "2.0.0-nightly.20260730"):
+        assert version_from_filename_token(
+            version_filename_token(version)) == version, version
+    # nothing else is ever claimed for a platform: the sidecars (they travel
+    # WITH their asset, they are not one), the full-history document, the
+    # device player payloads (kept by the DATED release the editor resolves
+    # them off, never by this one), and anything a stranger attached
+    for outsider in ("", "   ", CHANGELOG_FILE,
+                     dmg_name("macos", "", tonight) + CHECKSUM_SUFFIX,
+                     device_payload_asset_name("player-ios-simulator", "next",
+                                               tonight),
+                     device_payload_asset_name("player-android", "next",
+                                               tonight),
+                     "Orkige-macos-.zip", "Orkige-solaris-1.0.zip",
+                     "Orkige-linux-1.0.rpm", "notes.md"):
+        assert release_asset_identity(outsider) == ("", ""), outsider
+
+    # THE DECISION. macOS and Linux built tonight; Windows did not, and keeps
+    # what it published yesterday - both of its assets, both sidecars.
+    fresh_tonight = published_names("macos", tonight) \
+        + published_names("linux", tonight) + [CHANGELOG_FILE]
+    last_night = published_names("macos", yesterday) \
+        + published_names("linux", yesterday) \
+        + published_names("windows", yesterday) + [CHANGELOG_FILE]
+    rows = {row.key: row for row in retention_plan(fresh_tonight, last_night)}
+    assert sorted(rows) == sorted(PLATFORMS), sorted(rows)
+    # a platform that BUILT keeps nothing: a fresh build replaces its
+    # predecessor, which is the whole point of a rolling release
+    for platform in ("macos", "linux"):
+        assert rows[platform].fresh and not rows[platform].assets, platform
+        assert rows[platform].token == version_filename_token(tonight)
+    kept = rows["windows"]
+    assert not kept.fresh, kept.key
+    # it names the version it STILL CARRIES, not tonight's
+    assert kept.token == version_filename_token(yesterday), kept.token
+    assert kept.version == yesterday, kept.version
+    # ... and every one of that build's files travels, each followed by the
+    # sidecar it was published with: the sidecar is the download's whole
+    # integrity story, and an asset arriving without it could not be verified
+    assert sorted(kept.assets) == sorted(published_names("windows", yesterday))
+    for name in kept.assets:
+        if not name.endswith(CHECKSUM_SUFFIX):
+            assert name + CHECKSUM_SUFFIX in kept.assets, name
+    # nothing from another platform, and never the full-history document,
+    # which is regenerated every night
+    assert all(release_asset_identity(name)[0] == "windows"
+               for name in kept.assets
+               if not name.endswith(CHECKSUM_SUFFIX)), kept.assets
+    assert CHANGELOG_FILE not in kept.assets
+
+    # the plan the publish job reads: the rows that keep something, the flat
+    # list of files to fetch, and each kept build in BOTH renderings - the
+    # token names the files, the version is what the notes table shows
+    document = retention_document(retention_plan(fresh_tonight, last_night))
+    assert "retain_rows=windows\n" in document, document
+    assert "retain_windows_token=%s\n" % version_filename_token(yesterday) \
+        in document, document
+    assert "retain_windows_version=%s\n" % yesterday in document, document
+    for name in published_names("windows", yesterday):
+        assert name in document, document
+    # ... and no row that built tonight appears in it at all
+    for platform in ("macos", "linux"):
+        assert "retain_%s_" % platform not in document, document
+
+    # a night with no predecessor keeps nothing rather than failing - the
+    # first night ever, or a rolling release somebody deleted by hand
+    empty = retention_document(retention_plan(fresh_tonight, []))
+    assert empty == "retain_rows=\nretain_assets=\n", empty
+    # ... and so does a night where everything built
+    assert retention_document(retention_plan(
+        fresh_tonight + published_names("windows", tonight), last_night)) \
+        == "retain_rows=\nretain_assets=\n"
+    # an asset published without a sidecar travels alone rather than dragging
+    # a name that is not there
+    lone = retention_plan(fresh_tonight,
+                          published_names("windows", yesterday,
+                                          sidecars=False))
+    assert [row.assets for row in lone if row.key == "windows"] == \
+        [tuple(sorted(published_names("windows", yesterday,
+                                      sidecars=False)))], lone
+    # a predecessor carrying two builds of one platform (a hand-uploaded
+    # asset, a half-replaced release) keeps the NEWEST - the plan is
+    # deterministic even in a shape a normal night never produces
+    mixed = retention_plan(fresh_tonight,
+                           published_names("windows", older)
+                           + published_names("windows", yesterday))
+    keep_mixed = [row for row in mixed if row.key == "windows"][0]
+    assert keep_mixed.version == yesterday, keep_mixed.version
+    assert all(version_filename_token(older) not in name
+               for name in keep_mixed.assets), keep_mixed.assets
+    assert token_order_key(version_filename_token(yesterday)) > \
+        token_order_key(version_filename_token(older))
+    # a token with no date orders below every dated one rather than throwing
+    assert token_order_key("unstamped") < \
+        token_order_key(version_filename_token(older))
+
+    # the two readers of a name list: a DIRECTORY of files (tonight's
+    # downloads) and a text listing (what a release query printed). Neither
+    # existing is an empty list - a first night has no predecessor.
+    with tempfile.TemporaryDirectory() as temp:
+        assets = os.path.join(temp, "downloads")
+        os.makedirs(assets)
+        for name in published_names("macos", tonight):
+            open(os.path.join(assets, name), "w").close()
+        os.makedirs(os.path.join(assets, "a-directory"))
+        assert read_asset_names(assets) == sorted(
+            published_names("macos", tonight))
+        listing = os.path.join(temp, "previous.txt")
+        with open(listing, "w") as handle:
+            handle.write("".join(name + "\n"
+                                 for name in published_names("linux",
+                                                             yesterday)))
+            handle.write("\n   \n")            # a blank line is not an asset
+        assert read_asset_names(listing) == published_names("linux", yesterday)
+        assert read_asset_names(os.path.join(temp, "nothing-here")) == []
+        assert read_asset_names("") == []
+
+    # ... and the STEP that carries the decision out, lifted out of the yaml
+    # and run against a `gh` that serves a fixture release instead of talking
+    # to GitHub: it must ask the predecessor what it holds, fetch exactly the
+    # planned files, and end with a plan describing what actually arrived.
+    keep_script = workflow_step_script(
+        NIGHTLY_WORKFLOW,
+        "Keep the last good assets for a platform that failed tonight")
+    assert keep_script, "the publish job must keep a failed platform's assets"
+    if not usable_bash():
+        log("no working bash - the retention step is skipped")
+    else:
+        KEEP_GH_STUB = """#!/bin/sh
+# a stand-in for the GitHub CLI over ONE fixture release: `release view` prints
+# the asset listing, `release download` copies one asset out of the store, and
+# an asset the store does not have fails the way a lost download does
+verb="$2"
+if [ "$verb" = "view" ]; then cat "$GH_LISTING"; exit 0; fi
+if [ "$verb" = "download" ]; then
+  pattern=""; dir="."
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --pattern) pattern="$2"; shift ;;
+      --dir) dir="$2"; shift ;;
+    esac
+    shift
+  done
+  [ -f "$GH_STORE/$pattern" ] || exit 1
+  cp "$GH_STORE/$pattern" "$dir/$pattern"
+  exit 0
+fi
+exit 0
+"""
+        with tempfile.TemporaryDirectory() as temp:
+            bindir = os.path.join(temp, "bin")
+            os.makedirs(bindir)
+            with open(os.path.join(bindir, "gh"), "w") as handle:
+                handle.write(KEEP_GH_STUB)
+            os.chmod(os.path.join(bindir, "gh"), 0o755)
+            # tonight: macOS and Linux built, Windows did not. The rolling
+            # release still holds all three from yesterday.
+            arrived = os.path.join(temp, "downloads")
+            store = os.path.join(temp, "store")
+            keep_dir = os.path.join(temp, "retained")
+            for directory in (arrived, store):
+                os.makedirs(directory)
+            for platform in PLATFORMS:
+                for name in published_names(platform, yesterday,
+                                            sidecars=False):
+                    path = os.path.join(store, name)
+                    with open(path, "w") as handle:
+                        handle.write("the %s build of %s\n"
+                                     % (platform, yesterday))
+                    write_checksum(path)
+            for platform in ("macos", "linux"):
+                for name in published_names(platform, tonight):
+                    open(os.path.join(arrived, name), "w").close()
+            listing = os.path.join(temp, "listing.txt")
+            with open(listing, "w") as handle:
+                handle.write("".join(name + "\n"
+                                     for name in sorted(os.listdir(store))))
+            plan = os.path.join(temp, "retention.txt")
+            environ = dict(os.environ,
+                           PATH=bindir + os.pathsep + os.environ.get("PATH", ""),
+                           GH_LISTING=listing, GH_STORE=store,
+                           GH_TOKEN="not-a-token", ASSETS=arrived,
+                           RETAINED=keep_dir,
+                           PREVIOUS_LIST=os.path.join(temp, "previous.txt"),
+                           RETENTION=plan)
+            run = subprocess.run(["bash", "-c", keep_script], cwd=REPO_ROOT,
+                                 env=environ, capture_output=True, text=True)
+            assert run.returncode == 0, run.stdout + run.stderr
+            # exactly the failed platform's files came back - with their
+            # sidecars, and nothing belonging to a platform that built
+            assert sorted(os.listdir(keep_dir)) == \
+                sorted(published_names("windows", yesterday)), \
+                sorted(os.listdir(keep_dir))
+            document = open(plan).read()
+            assert "retain_rows=windows\n" in document, document
+            assert "retain_windows_version=%s\n" % yesterday in document
+            # the bytes are the PUBLISHED ones, and they still match the
+            # sidecars they were published with - which is what lets the
+            # publish job verify a kept asset like any other
+            for name in os.listdir(keep_dir):
+                if not name.endswith(CHECKSUM_SUFFIX):
+                    assert not checksum_mismatch(os.path.join(keep_dir, name))
+            verify_checksums(keep_dir)
+
+            # a download that fails leaves the row reading as produced by
+            # nobody rather than naming a file the release does not carry:
+            # the plan is taken over what ARRIVED, not over what was asked for
+            shutil.rmtree(keep_dir)
+            for name in published_names("windows", yesterday):
+                os.remove(os.path.join(store, name))
+            run = subprocess.run(["bash", "-c", keep_script], cwd=REPO_ROOT,
+                                 env=environ, capture_output=True, text=True)
+            assert run.returncode == 0, run.stdout + run.stderr
+            assert "::warning::" in run.stdout, run.stdout
+            assert os.listdir(keep_dir) == [], os.listdir(keep_dir)
+            assert open(plan).read() == "retain_rows=\nretain_assets=\n"
+
+            # and a night with NO predecessor at all keeps nothing rather than
+            # failing: the first one ever, or a release somebody deleted
+            shutil.rmtree(keep_dir)
+            os.remove(listing)
+            run = subprocess.run(["bash", "-c", keep_script], cwd=REPO_ROOT,
+                                 env=environ, capture_output=True, text=True)
+            assert run.returncode == 0, run.stdout + run.stderr
+            assert os.listdir(keep_dir) == [], os.listdir(keep_dir)
+            assert open(plan).read() == "retain_rows=\nretain_assets=\n"
+
     # --- the release notes an updater reads ------------------------------
     # The notes ARE the client contract: one API call on the release returns a
     # body carrying the ordered version and the commit as machine-readable
@@ -4283,7 +4756,12 @@ def selftest():
                            # mobile player, because an editor that cannot find
                            # one looks here
                            RESULT_PLAYER_IOS="success",
-                           RESULT_PLAYER_ANDROID="failure")
+                           RESULT_PLAYER_ANDROID="failure",
+                           # where tonight's artifacts are, where a kept one
+                           # would be, and the retention plan - absent here,
+                           # which is a night where every platform built
+                           ASSETS="downloads", RETAINED="retained",
+                           RETENTION="retention.txt")
             run = subprocess.run(["bash", "-c", notes_script], cwd=temp,
                                  env=environ, capture_output=True, text=True)
             assert run.returncode == 0, run.stdout + run.stderr
@@ -4409,6 +4887,55 @@ def selftest():
             assert "UNSIGNED, so macOS refuses" in \
                 open(os.path.join(temp, "notes.md")).read()
 
+            # --- a KEPT row names the version it still carries ------------
+            # Windows failed tonight, so the rolling release keeps what it
+            # published yesterday - and the table has to say so, or an older
+            # download reads as this build.
+            keep_token = version_filename_token(yesterday)
+            retained = os.path.join(temp, "retained")
+            os.makedirs(retained, exist_ok=True)
+            for name in published_names("windows", yesterday):
+                open(os.path.join(retained, name), "w").close()
+            with open(os.path.join(temp, "retention.txt"), "w") as handle:
+                handle.write(retention_document(
+                    retention_plan(read_asset_names(downloads),
+                                   published_names("windows", yesterday))))
+            run = subprocess.run(["bash", "-c", notes_script], cwd=temp,
+                                 env=environ, capture_output=True, text=True)
+            assert run.returncode == 0, run.stdout + run.stderr
+            rolling = open(os.path.join(temp, "notes.md")).read()
+            # both of that build's assets by name, the version they carry, and
+            # tonight's job result beside it - the row is honest about all
+            # three at once
+            assert ("| Windows (x64) | `Orkige-windows-%s-setup.exe` | "
+                    "`Orkige-windows-%s.zip` | kept `%s` - tonight's build "
+                    "skipped |" % (keep_token, keep_token, yesterday)) \
+                in rolling, rolling
+            assert "keeps the assets it published" in rolling, rolling
+            # the platforms that DID build still name tonight's files
+            assert ("| macOS (Apple silicon) | `Orkige-macos-%s.dmg` |"
+                    % token) in rolling, rolling
+            # THE MARKER stays tonight's commit: the gate compares it to decide
+            # whether main moved, so a kept asset must never freeze it
+            assert "<!-- orkige-nightly-commit: dea551f9e0abcdef1234 -->" \
+                in rolling, rolling
+            assert "<!-- orkige-nightly-version: %s -->" % ordered in rolling
+            assert yesterday not in rolling.split("| Platform |")[0]
+
+            # ... and the DATED release's notes retain NOTHING: that release is
+            # the archive of one night, so its table says what tonight built
+            dated = open(os.path.join(temp, "notes-dated.md")).read()
+            assert "| Windows (x64) | not produced | not produced | skipped |" \
+                in dated, dated
+            assert keep_token not in dated, dated
+            assert "kept `" not in dated, dated
+            assert "keeps the assets it published" not in dated, dated
+            # the two describe ONE build otherwise - same identity, same
+            # markers, same changelog
+            assert "<!-- orkige-nightly-commit: dea551f9e0abcdef1234 -->" \
+                in dated, dated
+            assert bounded.strip() in dated, dated
+
     # --- publishing the two releases --------------------------------------
     # It is shell in the publish job, and a mistake in it deletes something on
     # a real repository - so the check drives THAT script, lifted out of the
@@ -4467,13 +4994,15 @@ exit 0
                      "Orkige-linux-%s.tar.gz%s" % (token, CHECKSUM_SUFFIX)]
             for name in names:
                 open(os.path.join(downloads, name), "w").close()
-            with open(os.path.join(stage, "notes.md"), "w") as handle:
-                handle.write("notes\n")
+            for notes in ("notes.md", "notes-dated.md"):
+                with open(os.path.join(stage, notes), "w") as handle:
+                    handle.write(notes + "\n")
             gh_log = os.path.join(temp, "publish.log")
             environ = dict(base, GH_LOG=gh_log,
                            SHA="dea551f9e0abcdef1234", SHORT_SHA="dea551f9e",
                            BUILD_DATE="2026-07-31", VERSION=ordered,
-                           DATED_TAG="nightly-20260731", ASSETS="downloads")
+                           DATED_TAG="nightly-20260731", ASSETS="downloads",
+                           RETAINED="retained")
             run = subprocess.run(["bash", "-c", publish_script], cwd=stage,
                                  env=environ, capture_output=True, text=True)
             assert run.returncode == 0, run.stdout + run.stderr
@@ -4497,9 +5026,9 @@ exit 0
                                 "--prerelease", "--target",
                                 "dea551f9e0abcdef1234", "--title",
                                 "Orkige " + ordered, "--notes-file",
-                                "notes.md"] + assets, calls[3]
-            # the two releases hold the SAME files - that is what makes them one
-            # download under two names
+                                "notes-dated.md"] + assets, calls[3]
+            # with nothing kept, the two releases hold the SAME files - that is
+            # what makes them one download under two names
             assert calls[1][10:] == calls[3][10:]
             # THE INVARIANT: the only tags a delete is ever handed are the two
             # this night republishes - the rolling one and this day's own entry.
@@ -4511,6 +5040,42 @@ exit 0
             summary = open(base["GITHUB_STEP_SUMMARY"]).read()
             assert "releases/tag/nightly\n" in summary, summary
             assert "releases/tag/nightly-20260731" in summary, summary
+
+            # --- ONLY the rolling release keeps ---------------------------
+            # A platform that failed tonight keeps what it published before,
+            # so the download page never loses it. The DATED release is the
+            # archive of ONE night and must not: an asset from another night
+            # inside it would claim that night built something it did not.
+            os.remove(gh_log)
+            retained = os.path.join(stage, "retained")
+            os.makedirs(retained)
+            keep_names = published_names("windows", yesterday)
+            for name in keep_names:
+                open(os.path.join(retained, name), "w").close()
+            run = subprocess.run(["bash", "-c", publish_script], cwd=stage,
+                                 env=environ, capture_output=True, text=True)
+            assert run.returncode == 0, run.stdout + run.stderr
+            calls = gh_calls(gh_log)
+            assert len(calls) == 4, calls
+            keep_assets = sorted(os.path.join("retained", name)
+                                 for name in keep_names)
+            # the ROLLING release carries tonight's produce AND the kept files
+            assert calls[1][10:] == assets + keep_assets, calls[1]
+            # ... the DATED one carries tonight's produce alone
+            assert calls[3][10:] == assets, calls[3]
+            assert not [arg for arg in calls[3] if arg.startswith("retained")]
+            # ... and each is described by its own notes
+            assert calls[1][9] == "notes.md", calls[1]
+            assert calls[3][9] == "notes-dated.md", calls[3]
+            # the kept asset travels with the sidecar it was published with
+            for name in keep_assets:
+                if not name.endswith(CHECKSUM_SUFFIX):
+                    assert name + CHECKSUM_SUFFIX in keep_assets, name
+            # ... and STILL only these two tags are ever deleted
+            assert [call[2] for call in calls if call[:2] == ["release",
+                                                              "delete"]] == \
+                ["nightly", "nightly-20260731"], calls
+            shutil.rmtree(retained)
 
             # a build whose date composed no tag still publishes the rolling
             # release, and says out loud that it left no archive entry

@@ -377,7 +377,11 @@ set_tests_properties(make_default_icon_selftest PROPERTIES LABELS unit TIMEOUT 6
 # shell driven against a recorded-argv stand-in for the GitHub CLI: the rolling
 # release replaced, the dated one added with the identical assets, no tag
 # outside the dated shape ever handed to a delete, and housekeeping failures
-# leaving the night published), the known-limitations table and its per-platform
+# leaving the night published), the retention that keeps a failed platform's
+# last good assets on the ROLLING release alone (the pure plan over asset names
+# composed by the very functions that name a real artifact, and the workflow
+# step itself driven against a stand-in GitHub CLI serving a fixture release),
+# the known-limitations table and its per-platform
 # AND per-signature-state rendering, the whole macOS signing decision layer
 # (credential precedence, the honest refusal of a half-configured set, the
 # codesign/notarytool/stapler/spctl argv, the redaction that keeps a credential

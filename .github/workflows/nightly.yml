@@ -1905,6 +1905,56 @@ jobs:
           path: downloads
           merge-multiple: true
 
+      # A platform whose build failed tonight would VANISH from the download
+      # page: the rolling release is replaced wholesale, so whatever it does
+      # not carry is gone - one lost runner and that platform has nothing to
+      # download at all until the next green night. So it keeps what it
+      # published before, fetched back out of the release those bytes are
+      # still attached to, sidecars included and unmodified.
+      #
+      # WHICH assets, for WHICH platform, under WHICH version is decided by
+      # the pure planner in Util/orkige_nightly_package.py (--plan-retention),
+      # not by this shell. It is asked TWICE on purpose: once over the
+      # predecessor's listing to know what to fetch, and once over what
+      # actually arrived, so a download that failed leaves the row reading
+      # "not produced" instead of naming a file the release does not carry.
+      #
+      # They land in their OWN directory, because the two releases below do
+      # not carry the same list: the rolling one takes fresh and kept
+      # together, the dated one is one night's archive and takes tonight's
+      # produce alone.
+      - name: Keep the last good assets for a platform that failed tonight
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSETS: downloads
+          RETAINED: retained
+          PREVIOUS_LIST: previous-assets.txt
+          RETENTION: retention.txt
+        run: |
+          set -uo pipefail
+          # the predecessor's asset names, or an empty listing: the first
+          # night has no rolling release to keep anything from, and that is a
+          # night that retains nothing rather than a failure
+          : > "${PREVIOUS_LIST}"
+          gh release view nightly --json assets --jq '.assets[].name' \
+            > "${PREVIOUS_LIST}" 2> /dev/null \
+            || echo "no previous rolling release - nothing to keep"
+          mkdir -p "${RETAINED}"
+          wanted=$(python3 Util/orkige_nightly_package.py --plan-retention \
+            --assets "${ASSETS}" --previous-assets "${PREVIOUS_LIST}" \
+            | grep '^retain_assets=' | cut -d= -f2-)
+          for name in ${wanted}; do
+            gh release download nightly --pattern "${name}" \
+              --dir "${RETAINED}" --clobber \
+              || echo "::warning::could not fetch ${name} from the rolling release - the platform it belongs to reads as not produced"
+          done
+          # THE plan, over the files that actually arrived
+          python3 Util/orkige_nightly_package.py --plan-retention \
+            --assets "${ASSETS}" --previous-assets "${RETAINED}" \
+            --retention-out "${RETENTION}"
+          cat "${RETENTION}"
+          ls -l "${RETAINED}" || true
+
       # The changelog: the previous nightly's marker commit (exclusive) to this
       # one (inclusive), from the commit subjects. The generator degrades
       # honestly - no marker means a bounded recent window, and the output says
@@ -1935,15 +1985,32 @@ jobs:
           TRUST_MACOS: ${{ needs.binaries-macos.outputs.trust }}
           RESULT_PLAYER_IOS: ${{ needs.binaries-player-ios.result }}
           RESULT_PLAYER_ANDROID: ${{ needs.binaries-player-android.result }}
+          # where tonight's artifacts and the kept ones are, and the plan that
+          # says which platforms keep anything at all
+          ASSETS: downloads
+          RETAINED: retained
+          RETENTION: retention.txt
         run: |
           set -uo pipefail
-          ls -l downloads || true
-          count=$(find downloads -type f | wc -l)
+          ls -l "${ASSETS}" || true
+          count=$(find "${ASSETS}" -type f | wc -l)
           if [ "$count" -eq 0 ]; then
             echo "no archives arrived - nothing to publish" >&2
             exit 1
           fi
-          {
+          # ONE composition, TWO audiences. The ROLLING release's notes
+          # describe what IT carries, kept assets and all; the DATED release
+          # is the archive of this one night, so its notes are composed with
+          # no retention at all and its table says "not produced" wherever
+          # tonight's build did not produce - a stale row there would claim
+          # that night built something it did not. The retention plan file is
+          # the only difference between the two calls.
+          compose_notes() {
+            retention="${1:-}"
+            kept_field() {                # "" unless that row keeps its last build
+              [ -n "${retention}" ] && [ -f "${retention}" ] || return 0
+              grep "^retain_${1}_${2}=" "${retention}" | head -1 | cut -d= -f2-
+            }
             echo "Editor version \`${VERSION}\` - built ${BUILD_DATE} (UTC) from"
             echo "\`${SHORT_SHA}\`, and only because the full test matrix on that"
             echo "commit was green."
@@ -1953,25 +2020,48 @@ jobs:
             # downloads, the PORTABLE one unpacks anywhere and is what an
             # updater swaps files out of. The row fields are separated by "|"
             # (a version token cannot contain one) so a filename with a colon
-            # in it could never split a row.
+            # in it could never split a row; "@" stands where the version
+            # token goes, and is not a character any token can contain either.
             echo "| Platform | Install | Portable | Build |"
             echo "| --- | --- | --- | --- |"
-            for row in "macOS (Apple silicon)|${RESULT_MACOS}|Orkige-macos-${TOKEN}.dmg|Orkige-macos-${TOKEN}.zip" \
-                       "Linux (x86_64)|${RESULT_LINUX}|Orkige-linux-${TOKEN}.AppImage|Orkige-linux-${TOKEN}.tar.gz" \
-                       "Windows (x64)|${RESULT_WINDOWS}|Orkige-windows-${TOKEN}-setup.exe|Orkige-windows-${TOKEN}.zip"; do
-              IFS='|' read -r label result install portable <<< "${row}"
+            for row in "macos|macOS (Apple silicon)|${RESULT_MACOS}|Orkige-macos-@.dmg|Orkige-macos-@.zip" \
+                       "linux|Linux (x86_64)|${RESULT_LINUX}|Orkige-linux-@.AppImage|Orkige-linux-@.tar.gz" \
+                       "windows|Windows (x64)|${RESULT_WINDOWS}|Orkige-windows-@-setup.exe|Orkige-windows-@.zip"; do
+              IFS='|' read -r key label result install portable <<< "${row}"
+              keep_token=$(kept_field "${key}" token)
+              if [ -n "${keep_token}" ]; then
+                # tonight's build for this platform produced nothing, so the
+                # release keeps the last one that did: the row names THAT
+                # build's files and version, never tonight's, so an older
+                # download is never read as this build
+                token="${keep_token}"
+                where="${RETAINED}"
+                build="kept \`$(kept_field "${key}" version)\` - tonight's build ${result}"
+              else
+                token="${TOKEN}"
+                where="${ASSETS}"
+                build="${result}"
+              fi
               cells=""
-              for file in "${install}" "${portable}"; do
+              for file in "${install//@/${token}}" "${portable//@/${token}}"; do
                 if [ -z "${file}" ]; then
                   cells="${cells} - |"          # this platform has no such asset
-                elif [ -f "downloads/${file}" ]; then
+                elif [ -f "${where}/${file}" ]; then
                   cells="${cells} \`${file}\` |"
                 else
                   cells="${cells} not produced |"
                 fi
               done
-              echo "| ${label} |${cells} ${result} |"
+              echo "| ${label} |${cells} ${build} |"
             done
+            if [ -n "${retention}" ] && [ -f "${retention}" ] && \
+               [ -n "$(grep '^retain_rows=' "${retention}" | cut -d= -f2-)" ]; then
+              echo ""
+              echo "A platform whose build failed keeps the assets it published"
+              echo "last, so there is always something to download for it. Those"
+              echo "rows carry their own older version above - they are not this"
+              echo "build, and an updater comparing versions does not offer them."
+            fi
             echo ""
             cat changelog.md
             echo ""
@@ -2016,10 +2106,17 @@ jobs:
             # editor fetches the one for the platform they switched on. The
             # notes say whether tonight published one, because an editor that
             # cannot find it will say so and this is where to check.
+            #
+            # These rows never keep an older build the way the desktop ones
+            # do. A released editor resolves its payload off the DATED release
+            # its own version names (EditorPayloads::payloadReleaseTag), which
+            # no later night replaces, so the payload of the night that built
+            # it is still exactly where that editor looks - and a copy here
+            # would be a file nothing ever resolves.
             for row in "iOS Simulator|${RESULT_PLAYER_IOS}|orkige-player-ios-simulator-next-${TOKEN}.zip" \
                        "Android|${RESULT_PLAYER_ANDROID}|orkige-player-android-next-${TOKEN}.zip"; do
               IFS='|' read -r label result asset <<< "${row}"
-              if [ -f "downloads/${asset}" ]; then
+              if [ -f "${ASSETS}/${asset}" ]; then
                 echo "The ${label} player for this build is published as"
                 echo "\`${asset}\` - Orkige downloads it itself when you"
                 echo "switch that platform on under Settings > Build Targets."
@@ -2037,9 +2134,15 @@ jobs:
             # updater: the commit is read back by the gate (to skip a rebuild
             # when main has not moved) and bounds the next changelog; the
             # version is what a client compares with core_util/VersionOrder.
+            # THE MARKER stays TONIGHT's commit whatever was kept: the gate
+            # reads it to decide whether main moved since the last published
+            # nightly, so a kept asset freezing it would skip every following
+            # night. What was kept is an ASSET decision and never an identity.
             echo "<!-- orkige-nightly-commit: ${SHA} -->"
             echo "<!-- orkige-nightly-version: ${VERSION} -->"
-          } > notes.md
+          }
+          compose_notes "${RETENTION}" > notes.md
+          compose_notes "" > notes-dated.md
           cat notes.md
 
       # The full history as its own asset: the archives each carry the changes
@@ -2082,13 +2185,25 @@ jobs:
       # way here fail the publish rather than being served under a digest that
       # fits neither.
       - name: Verify the assets against their checksum files
+        env:
+          ASSETS: downloads
+          RETAINED: retained
+          RETENTION: retention.txt
         run: |
           set -uo pipefail
-          python3 Util/orkige_nightly_package.py --verify-checksums downloads
+          python3 Util/orkige_nightly_package.py --verify-checksums "${ASSETS}"
+          # a KEPT asset is checked the same way, against the sidecar it was
+          # published with: it travels unmodified, so the two still agree, and
+          # bytes that changed on the way back here fail the publish rather
+          # than being served again under a digest that fits neither
+          if [ -n "$(grep '^retain_rows=' "${RETENTION}" | cut -d= -f2-)" ]; then
+            python3 Util/orkige_nightly_package.py \
+              --verify-checksums "${RETAINED}"
+          fi
 
-      # ONE step, TWO releases, from ONE list of assets - which is what makes
-      # them the same download under two names rather than two builds that
-      # happen to agree:
+      # ONE step, TWO releases, from ONE build - which is what makes them the
+      # same download under two names rather than two builds that happen to
+      # agree:
       #
       # - `nightly` is the ROLLING one: replaced wholesale every night, so its
       #   tag moves and its download URLs stay identical from one night to the
@@ -2100,6 +2215,13 @@ jobs:
       #   rather than adding a duplicate, which is why the delete precedes the
       #   create for it too - and those two tags are the ONLY ones this job
       #   ever hands to a delete.
+      #
+      # They carry tonight's produce identically, and differ in exactly one
+      # thing: the ROLLING release additionally carries what a platform that
+      # failed tonight keeps from its predecessor, with notes that name that
+      # older version. The DATED release is the archive of ONE night and takes
+      # tonight's produce alone - an asset from another night inside it would
+      # claim that night built something it did not.
       #
       # GitHub has no way to share one uploaded asset between two releases, and
       # a dated release that merely pointed at the rolling one would break the
@@ -2114,12 +2236,19 @@ jobs:
           VERSION: ${{ needs.binaries-gate.outputs.version }}
           DATED_TAG: ${{ needs.binaries-gate.outputs.dated_tag }}
           ASSETS: downloads
+          RETAINED: retained
         run: |
           set -uo pipefail
-          assets=()
+          fresh=()
           while IFS= read -r asset; do
-            assets+=("$asset")
+            fresh+=("$asset")
           done < <(find "${ASSETS}" -type f | sort)
+          kept=()
+          if [ -d "${RETAINED}" ]; then
+            while IFS= read -r asset; do
+              kept+=("$asset")
+            done < <(find "${RETAINED}" -type f | sort)
+          fi
           tags=(nightly)
           if [ -n "${DATED_TAG}" ]; then
             tags+=("${DATED_TAG}")
@@ -2127,12 +2256,23 @@ jobs:
             echo "::warning::no dated tag was composed for this build - only the rolling nightly is published, and this night leaves no archive entry"
           fi
           for tag in "${tags[@]}"; do
+            if [ "${tag}" = "nightly" ]; then
+              # the ROLLING release: tonight's produce plus what a platform
+              # that failed keeps, described by notes that name that build
+              notes=notes.md
+              payload=("${fresh[@]}" ${kept[@]+"${kept[@]}"})
+            else
+              # the ARCHIVE of one night: tonight's produce and nothing else,
+              # described by notes composed with no retention at all
+              notes=notes-dated.md
+              payload=("${fresh[@]}")
+            fi
             gh release delete "${tag}" --yes --cleanup-tag 2> /dev/null || true
             gh release create "${tag}" \
               --prerelease \
               --target "${SHA}" \
               --title "Orkige ${VERSION}" \
-              --notes-file notes.md \
-              "${assets[@]}"
+              --notes-file "${notes}" \
+              "${payload[@]}"
             echo "published https://github.com/${GITHUB_REPOSITORY}/releases/tag/${tag}" >> "$GITHUB_STEP_SUMMARY"
           done

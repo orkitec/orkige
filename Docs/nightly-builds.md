@@ -714,9 +714,12 @@ Both are fixed strings one regex finds in one pass over `body`.
    rendering — because swapping files in place needs neither a mounted image nor
    an installer run. The installable assets (`Orkige-macos-<token>.dmg`,
    `Orkige-linux-<token>.AppImage`, `Orkige-windows-<token>-setup.exe`) are what
-   a **person** downloads from the release page. A platform whose build failed has **no asset**, and the notes
-   table names it with that job's result: a client asks "is there a build for
-   me", and absence is the answer.
+   a **person** downloads from the release page. A platform whose build failed
+   has **no asset under this version's token** — the release may still carry
+   that platform's previous build, under the token *that* version renders, and
+   the notes table names it as kept. Either way a client asks "is there a build
+   for me at this version", and absence is the answer: what is kept is not an
+   update.
 6. Fetch the `<archive>.sha256` asset beside it and **verify the digest before
    trusting a single byte** of the archive. That sidecar is the download's only
    integrity story; the publish job checks every archive against the sidecar
@@ -901,15 +904,28 @@ people through steps they do not need, an unsigned one described as notarized
 leaves them stuck, and a macOS job that never reported reads as the unsigned
 wording rather than as a claim nobody made.
 
+The **retention decision** is driven as pure data first — which rows keep what,
+over asset names composed by the very functions that name a real artifact, so
+the reader and the writer of the grammar cannot drift: a platform that built
+keeps nothing, a platform that did not keeps its whole last build with its
+sidecars, an asset published without one travels alone, a predecessor carrying
+two builds of one platform yields the newest, and neither a device payload nor
+the full-history document is ever claimed for a platform. The **step** that
+carries it out is then lifted out of the workflow and run against a `gh` that
+serves a fixture release: it must fetch exactly the planned files, end with a
+plan describing what arrived, and — when a download fails or there is no
+predecessor at all — keep nothing rather than name a file that is not there.
+
 The step that **creates the releases** is driven the same way, because a mistake
 in it deletes something on a real repository: it is lifted out of the workflow
 and run against a `gh` that records the exact argument vector it was handed
 instead of talking to GitHub. What is asserted is the sequence — that the
-rolling release is replaced, that the dated one is added carrying the identical
-asset list, that a build with no composed date still publishes the rolling one
-and says it left no archive entry, and that **the only tags a delete is ever
-handed are the two this night republishes**, so no earlier dated release can be
-reached from here.
+rolling release is replaced, that the dated one is added, that with nothing kept
+the two carry the identical asset list while a kept asset reaches **the rolling
+release alone**, that each is described by its own notes file, that a build with
+no composed date still publishes the rolling one and says it left no archive
+entry, and that **the only tags a delete is ever handed are the two this night
+republishes**, so no earlier dated release can be reached from here.
 
 ## Where the artifacts go
 
@@ -931,11 +947,13 @@ Three places, all conservative:
   the tree actually moved, so the archive grows with real work rather than with
   the calendar, and release storage on a public repository costs nothing.
 
-Both carry the **same assets**, uploaded twice from one list, and the same
-notes. GitHub has no way to share an uploaded asset between two releases, and a
-dated release that merely pointed at the rolling one would break the moment the
+Both carry **tonight's produce**, uploaded twice, and describe one build.
+GitHub has no way to share an uploaded asset between two releases, and a dated
+release that merely pointed at the rolling one would break the moment the
 rolling one is replaced; release storage on a public repository is free, so the
-bytes are simply uploaded again.
+bytes are simply uploaded again. They differ in exactly one thing, and it is
+the subject of the next section: the rolling release additionally carries what
+a platform that failed tonight keeps from its predecessor.
 
 The date is the one the build's ordered version is composed from, so the tag and
 the title name one day by construction — `--identity` prints the version, its
@@ -951,9 +969,8 @@ the rolling `nightly` and this day's own dated entry. Nothing else is ever
 named, so an earlier night's download cannot be removed by a later one.
 
 The publish job runs whenever the gate was green, even if a platform's build
-failed: the release notes list every platform with its archive or the words "not
-produced" plus that job's result, so a partial night is legible instead of
-looking complete. Zero archives is a failure — there is nothing to publish.
+failed, so a partial night is legible instead of looking complete. Zero archives
+is a failure — there is nothing to publish.
 
 Each night's assets are the two macOS ones (`.dmg`, `.zip`), the two Linux ones
 (`.AppImage`, `.tar.gz`), the two Windows ones (`-setup.exe`, `.zip`), the full-history
@@ -962,6 +979,60 @@ every one of them is checked against the
 sidecar that travelled with it (`--verify-checksums`), so bytes that changed on
 the way fail the publish rather than being served under a digest that fits
 neither.
+
+## A platform that fails keeps its last good assets
+
+The rolling release is replaced **wholesale**, which is what keeps its download
+URLs identical from one night to the next. Wholesale also means whatever it does
+not carry is gone: one lost runner and that platform has nothing to download at
+all until the next green night.
+
+So the rolling release **retains**. A platform that produced no fresh artifact
+tonight keeps the assets it published last — both of them, with their `.sha256`
+sidecars, fetched back out of the release those bytes are still attached to and
+uploaded unmodified. Its row in the notes table then names that build's files
+and **the version they carry**, beside tonight's job result:
+
+```
+| Windows (x64) | `Orkige-windows-2.0.0-nightly.20260730_aaaaaaaaa-setup.exe` |
+`Orkige-windows-2.0.0-nightly.20260730_aaaaaaaaa.zip` |
+kept `2.0.0-nightly.20260730+aaaaaaaaa` - tonight's build failure |
+```
+
+Four rules bound it:
+
+- **Only the rolling release retains.** The dated `nightly-YYYYMMDD` release is
+  the archive of one night, so it carries tonight's produce alone and its own
+  notes say "not produced" wherever tonight's build did — an asset from another
+  night inside it would claim that night built something it did not. The two
+  releases are the only place the notes differ, and each is composed from the
+  same block with and without the retention plan.
+- **The `orkige-nightly-commit:` marker stays tonight's commit.** The gate reads
+  it to decide whether `main` moved since the last published nightly, so a kept
+  asset must never freeze it; what was kept is an asset decision and never an
+  identity.
+- **A kept asset travels with the sidecar it was published with**, byte for
+  byte. It is verified on arrival exactly like a fresh one, so bytes that
+  changed on the way back fail the publish rather than being served again under
+  a digest that fits neither.
+- **The desktop editors are what is retained.** A device player payload is
+  resolved by a released editor off the *dated* release its own version names
+  (`EditorPayloads::payloadReleaseTag`), which no later night replaces, so the
+  payload of the night that built it is still exactly where that editor looks. A
+  copy in the rolling release would be a file nothing resolves, and "no player
+  was published for this build" stays both true and what the editor itself says.
+
+An **updater sees no change**: it picks its platform's asset by the token of the
+version in the release body, and a kept asset carries its own older token — so a
+retained row is not offered as an update, which is right, because it is not one.
+Retention is for the download page and the person reading it.
+
+Which platform keeps which files, under which version, is decided by
+`orkige_nightly_package.py --plan-retention` — a pure function of two lists of
+asset names (what arrived tonight, what the predecessor carried) that prints the
+plan as `key=value` lines. The workflow carries it out and then asks again over
+what actually **arrived**, so a download that failed leaves the row reading "not
+produced" instead of naming a file the release does not carry.
 
 What each platform's download is worth — and where it still warns its user —
 is the list below.
