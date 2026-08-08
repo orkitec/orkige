@@ -188,6 +188,119 @@ jobs:
   # WebGL skips this job entirely - the last good deployment (docs + a working
   # player) stays live rather than being rebuilt onto a broken build. The
   # /play/ artifact is reused from the `web` job (no second wasm build here).
+  # Play in Browser as a LIVE editor session, end to end: the host editor
+  # exports, serves and debug-links a REAL headless Chrome running the wasm
+  # player - the only place the chunked browser frame capture road is proven
+  # against a real page. Needs both halves no other job has together: the
+  # web job's wasm player and a host editor build.
+  #
+  # DELIBERATELY NOT GATING YET: absent from fast-forward-main's `needs:`
+  # and from the required contexts until its stability on hosted runners is
+  # proven - a trial job must not be able to hold main. Promote it into both
+  # in one change once it has a green streak.
+  editor-browser-session:
+    name: Editor browser session (host editor + wasm player)
+    needs: web
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      VCPKG_ROOT_DIR: /home/runner/Development/vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: /home/runner/vcpkg-binary-cache
+      CCACHE_DIR: /home/runner/.ccache
+      CCACHE_MAXSIZE: 1G
+      CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime
+      CC: clang
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang ninja-build ccache python3 pkg-config \
+            autoconf autoconf-archive automake libtool curl zip unzip tar \
+            libx11-dev libxft-dev libxext-dev libxrandr-dev libxi-dev \
+            libxcursor-dev libxfixes-dev libxrender-dev libxss-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libxt-dev libxaw7-dev \
+            libx11-xcb-dev libxcb-randr0-dev libxtst-dev libxinerama-dev \
+            libxcb1-dev libxcb-keysyms1-dev libxcb-ewmh-dev libxcb-icccm4-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libglu1-mesa-dev \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libltdl-dev \
+            libibus-1.0-dev \
+            xvfb mesa-utils libgl1-mesa-dri mesa-vulkan-drivers vulkan-tools
+
+      - name: Check out pinned vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT_DIR"
+          git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
+      # restore-only, riding linux-next's own keys: a trial job neither
+      # earns nor pollutes the caches the gating jobs depend on
+      - name: Restore vcpkg binary cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0 - the v6 cache service, warmed deliberately
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: vcpkg-next-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-next-v2-${{ runner.os }}-
+
+      - name: Restore ccache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0 - the v6 cache service, warmed deliberately
+        with:
+          path: /home/runner/.ccache
+          key: ccache-next-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-next-${{ runner.os }}-
+
+      - name: Configure (linux-debug-next)
+        run: |
+          bash Util/ci_configure.sh --preset linux-debug-next \
+            -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+
+      - name: Build the editor and the player
+        run: cmake --build --preset linux-debug-next --target orkige_editor orkige_player
+
+      # the wasm player lands where the editor's compile-time define points
+      # (build/web-release/tools/player/ under the SOURCE tree), which is what
+      # makes the Browser play target selectable
+      - name: Place the wasm player where the editor expects it
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          name: wasm-player
+          path: build/web-release/tools/player
+
+      - name: Browser session tests (may not skip - Chrome is on this image)
+        env:
+          SDL_VIDEO_DRIVER: x11
+        run: |
+          set -euo pipefail
+          test -s build/web-release/tools/player/orkige_player.js
+          LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1)
+          echo "using ICD: $LVP_ICD"
+          export VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD"
+          xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" \
+            ctest --test-dir build/linux-debug-next -R "editor_play_browser" \
+              --output-on-failure --timeout 600 --output-log ctest-browser.log
+          # this job EXISTS to run these legs: a skip means the browser or the
+          # player went missing, and that must fail by name, not pass by silence
+          ! grep -q "Skipped" ctest-browser.log
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: editor-browser-session-logs
+          path: |
+            build/linux-debug-next/Testing/**/*.log
+            build/linux-debug-next/tests/**/*.png
+            ctest-browser.log
+          if-no-files-found: ignore
+
   site:
     needs: web
     # DEPLOY ONLY FROM main. Every other job is a verdict on a change and is
@@ -1351,6 +1464,18 @@ jobs:
         with:
           name: benchmark-play
           path: play-site
+
+      # The wasm player pair the EDITOR serves for Play in Browser - the
+      # editor-browser-session job places these at the path the editor's
+      # ORKIGE_EDITOR_WEB_PLAYER_JS define expects
+      - name: Upload the wasm player for the editor session job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: wasm-player
+          path: |
+            build/web-release/tools/player/orkige_player.js
+            build/web-release/tools/player/orkige_player.wasm
+          if-no-files-found: error
 
       - name: Upload test diagnostics
         if: failure()
