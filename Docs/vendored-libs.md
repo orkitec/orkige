@@ -150,8 +150,10 @@ only attribution.
 Two decisions keep it that way, and both are load-bearing. The audio backend is
 miniaudio, a single-file library under `Unlicense OR MIT-0`. And the render
 backends read images through decode-only codecs and encode their own PNG output
-(`core_util/PngWriter`), so no image library enters the closure on any
-platform — which is what keeps the whole FreeImage codec family, LibRaw
+(`core_util/PngWriter`), so no image CODEC LIBRARY enters the closure for the
+engine's own reading and writing — the one image library present, the
+permissive `libpng` inside FreeType for compressed bitmap glyphs, serves text,
+not textures — which is what keeps the whole FreeImage codec family, LibRaw
 included, out of every build.
 
 ## GitHub Actions are SHA-pinned

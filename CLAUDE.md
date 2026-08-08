@@ -38,7 +38,7 @@ feature `render-next`), classic OGRE the fully supported compatibility flavor.
 | `windows-debug` / `windows-release` / `windows-debug-classic` | desktop Windows (MSVC) |
 | `ios-simulator-debug` (+ `-classic`) | arm64 iOS Simulator, `triplets/arm64-ios-simulator.cmake` |
 | `ios-device-debug` / `ios-device-release` (+ `-classic`) | arm64 iPhoneOS, `triplets/arm64-ios-device.cmake` |
-| `android-debug` / `android-release` (+ `-classic`) | arm64 Android, `triplets/arm64-android.cmake`, NDK 27 via `ANDROID_NDK_HOME`, API 28+ |
+| `android-debug` / `android-release` (+ `-classic`) | arm64 Android, `triplets/arm64-android.cmake`, NDK 27 via `ANDROID_NDK_HOME`, API 28+; `-ci` twins (`android-debug-ci`, `android-emulator-debug-ci{,-classic}` — x86_64) take the NDK from the environment |
 | `web-release` | wasm32 via Emscripten, the classic flavor through WebGL |
 | `macos-debug-noscript` / `linux-debug-noscript` | `ORKIGE_SCRIPTING=OFF` builds |
 | `linux-debug-sanitize` / `linux-debug-tsan` / `macos-debug-tsan` | sanitizer trees |
@@ -62,7 +62,8 @@ Rules and hazards:
   lighting, sky, atmosphere, fog, IBL, decals, bloom, the graded look, the 2D
   layers — per-shot corridors in `FEATURE_SHOTS`, report-only where the pair
   measures a divergence that has not been adjudicated), `grade_look_parity` and
-  the two `benchmark_crossflavor_parity` gates beside it. A comparison needs BOTH
+  the three `benchmark_crossflavor_parity` gates beside it (lake, mirror,
+  lumens; CI compares lake + mirror, lumens runs locally). A comparison needs BOTH
   flavors and a build tree carries one, so each driver has two roads to the
   same verdict: run both binaries (the ctest, registered on the next preset,
   reading the classic binary out of `build/<host>-debug-classic` and skipping
@@ -195,10 +196,11 @@ ctest --preset web             # the web tree: wasm core units under node + the
                                # skip-77 without a browser) — build web-release first
 ```
 
-Layout: the `unit` label covers four headless Catch2 executables —
+Layout: the `unit` label covers five headless Catch2 executables —
 `tests/core/` (`orkige_core_tests`, boots the app singleton set via
-`CoreTestEnvironment`), `tests/engine/`, `tests/editor_core/` and
-`tests/exporter/` — plus the stdlib-only lint/selftest ctests. The
+`CoreTestEnvironment`), `tests/engine/`, `tests/editor_core/`,
+`tests/exporter/` and — on classic trees only, where the jumper sample
+builds — `tests/jumper/` — plus the stdlib-only lint/selftest ctests. The
 `integration` tests (registered in `tests/CMakeLists.txt`) reuse the
 self-checking apps — hello_orkige demos, editor self-check/resize, player —
 which verify themselves and exit non-zero on failure; that exit code is the
@@ -727,8 +729,10 @@ browser are not there yet).
   dependency has to be answered in that file — `third_party_notices_lint`
   fails otherwise. `Docs/vendored-libs.md` has the tier table and the licence
   facts; nothing in the shipped closure is copyleft, which holds because the
-  audio backend is miniaudio and because the render backends encode their own
-  PNG output instead of linking an image library.
+  audio backend is miniaudio and because the FreeImage codec family (LibRaw,
+  jasper, tiff and friends - where the copyleft risk sat) stays out: the
+  render backends encode their own PNG output. The permissive libpng still
+  ships, inside FreeType, for compressed bitmap glyphs.
 
 - **The SDK pack is never a prerequisite for a project with no C++.** A Lua
   game has nothing to compile: it needs the platform's player (fetched, for a
@@ -889,7 +893,7 @@ lives in a doc and is pointed at from here. The full index:
 | `sanitizers.md` / `fuzzing.md` / `soak.md` / `security.md` | the stability + safety instruments |
 | `ports.md` / `vendored-libs.md` | overlay ports, third-party provenance + pinning, the redistribution notices |
 | `help-portal.md` | the published site generator |
-| `upstream/` | the OGRE PR package (OGRECave/ogre #3667-3669) and `upstream/ogre-next/` (OGRECave/ogre-next #587-#589, the NULL render system) |
+| `upstream/` | the OGRE PR package (OGRECave/ogre #3667-3669) and `upstream/ogre-next/` (OGRECave/ogre-next #587+#588 merged, #590 filed answering issue #589 — the NULL render system) |
 | `api/`, `legal/` | the site's class-reference config, imprint + privacy |
 
 `Docs/lua-api.md` and `Docs/gui.md` carry GENERATED blocks — never hand-edit
@@ -1443,7 +1447,7 @@ runs for branches that must be rebased anyway. The sixteen verdicts, plus the
 | Job | What it gates |
 |-----|---------------|
 | `linux-classic` / `linux-next` | the full windowed desktop suites under xvfb (llvmpipe / lavapipe); `linux-next` adds the `ORKIGE_SCRIPTING=OFF` build + unit gate |
-| `render-parity` (needs both Linux jobs) | the WYSIWYG gate: downloads the two flavor jobs' screenshots and compares them, gates the 43-shot feature sweep, and runs the self-drift gate (each flavor against the previous green run's own frames - undeclared pixel movement fails) — facade pixels, window density, the output grade's induced deltas, the lake + planar-mirror benchmark vignettes, and the report-only feature sweep over every other selfcheck frame. No build, no GPU |
+| `render-parity` (needs both Linux jobs) | the WYSIWYG gate: downloads the two flavor jobs' screenshots and compares them, gates the 46-shot feature sweep (42 gated, 4 report-only where the pair measures an unadjudicated divergence), and runs the self-drift gate (each flavor against the previous green run's own frames - undeclared pixel movement fails) — facade pixels, window density, the output grade's induced deltas, the lake + planar-mirror benchmark vignettes. No build, no GPU |
 | `linux-sanitizer` | CI-only ASan + UBSan tree, complete unit + desktop suite |
 | `linux-tsan` | ThreadSanitizer tree, headless unit gate only (windowed sets are too noisy under TSan) |
 | `host-exporter` | builds `orkige_export` on Linux and uploads it — the browser export needs a host exporter the wasm tree cannot build |
@@ -1451,7 +1455,7 @@ runs for branches that must be rebased anyway. The sixteen verdicts, plus the
 | `web-parity` (needs `web` + both Linux jobs) | the BROWSER look gate: downloads the wasm player's captures and the desktop classic player's captures of the same two vignettes and compares them region-wise. Same flavor on both sides, so a divergence names the WebGL/GLES3 tier alone. It also REPORTS (never gates) the release pair, desktop next against the browser, and uploads both pairs as side-by-side pictures. No build, no GPU |
 | `site` (needs `web`) | the per-push site deploy (see the help-portal bullet) |
 | `android-emulator-next` / `-classic` | build the x86_64 emulator player FIRST (the fail-fast the job exists for), then the host editor, then the adb Play test |
-| `macos-next` / `macos-classic` | the complete non-device desktop suites on Apple hardware (classic includes the MoltenVK Vulkan runs — brew molten-vk in the job) |
+| `macos-next` / `macos-classic` | next: the complete non-device desktop suite on Apple hardware; classic: build + headless units only (its desktop/Vulkan suites run locally — `ctest --preset desktop-classic` / `all`) |
 | `ios-simulator-next` | Simulator player, then host editor, then the export/Play/boot/safe-area device tests against a prepared iPhone simulator plus a PRE-WARMED shutdown device |
 | `ios-simulator-classic` | classic Simulator player (fail-fast) + the export structure test with a may-not-skip guard |
 | `windows-next` | MSVC build + complete desktop suite through a Mesa lavapipe software Vulkan ICD with Win32 presentation (preset `windows-debug`, `x64-windows-static-md`, NOMINMAX/WIN32_LEAN_AND_MEAN globally) |

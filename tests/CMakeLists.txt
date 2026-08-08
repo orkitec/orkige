@@ -696,10 +696,9 @@ if(TARGET orkige_engine)
         # FEATURE_SHOTS table with the measurement each came from beside it.
         #
         # This registration GATES, because the corridors were measured on
-        # exactly this pair - the host's own two flavors. The CI step runs
-        # the same sweep with --report-only, because the Linux pair is a
-        # different software rasterizer on each side and a corridor moved
-        # onto an unmeasured pair blocks merges instead of catching bugs.
+        # exactly this pair - the host's own two flavors. The CI step gates
+        # the same sweep too: the Linux pair was measured (worst 1.15/3.6
+        # against the 6.0 corridors), so both pairs hold the same bar.
         # Same cross-preset skip-77 as render_backend_parity.
         add_test(NAME render_feature_parity
             COMMAND python3
