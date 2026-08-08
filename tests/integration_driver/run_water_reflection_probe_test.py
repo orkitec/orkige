@@ -147,8 +147,8 @@ def main():
     # the SAME mirror term (mirror x kS x roughness-aware Schlick F, added in
     # linear light before one display transfer), so what is left between them
     # is what each one's mirror SHOWS on this demo, not two calibrations; the
-    # shared kS lives at kMirrorSpecular in NextBackend.cpp and
-    # kWaterMirrorSpecular in RenderSystemClassic.cpp. The floor keeps ~20%
+    # shared kS is the `water.mirrorSpecular` cvar both backends read
+    # (engine_render/RenderWaterTuning.h). The floor keeps ~20%
     # headroom over the lower of the two on deterministic frame-locked
     # captures; a mirror that stops showing the scene reads ~0.001, which the
     # DELTA guard also catches.

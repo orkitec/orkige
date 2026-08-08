@@ -749,6 +749,14 @@ namespace Orkige
 		//! seconds (RenderSystem::setWaterTime) - a name with no registered
 		//! water datablock is a silent no-op (the dormancy rule)
 		static void setWaterDatablockTime(String const & name, float seconds);
+		//! @brief re-apply the water LOOK to every live surface after a
+		//! `water.*` cvar moved (RenderSystem::refreshWaterLook). Re-runs
+		//! createOrUpdateWaterDatablock from the description each surface was
+		//! built from - the look constants live BAKED in there (the mirror's
+		//! specular/fresnel/albedo and the planar piece its sample LOD and
+		//! ripple distortion compile into), so rebuilding is the only way that
+		//! does not copy those laws. No water in the scene = a no-op.
+		static void refreshWaterLook();
 		//! the "DrawLayer2D/<tex>" HlmsUnlit datablock of a 2D batch
 		//! texture (unlit, alpha-blended, depth-IGNORED, two-sided,
 		//! clamped point sampling - the facade's 2D render contract);

@@ -1275,6 +1275,26 @@ if(TARGET hello_orkige)
     set_tests_properties(water_reflection_looks_right PROPERTIES
         LABELS integration SKIP_RETURN_CODE 77 TIMEOUT 300)
 
+    # water_cvar_tier_is_live: the live `water.*` look tier
+    # (engine_render/RenderWaterTuning.h) proved on the rendered surface. Runs
+    # the demo_water reflection leg three ways - nothing seeded, the mirror
+    # weight seeded with its shipped DEFAULT, and seeded to 0 - and asserts
+    # BOTH properties the tier promises: the default-seeded frame is
+    # BYTE-IDENTICAL to the unseeded one (adding the tier moved no pixel, which
+    # is what the parity/self-drift gates rest on) and the 0-seeded frame's
+    # water band loses the marker's mirror (the knob reaches the surface). The
+    # seed rides the general ORKIGE_CVAR_* boot hook, so this exercises the
+    # same registry path the console / MSG_SET_CVAR / MCP set_cvar doors use.
+    # Registered per flavor; skips (77) where planar reflection is unsupported
+    # (no mirror term to scale) or the app is unbuilt.
+    add_test(NAME water_cvar_tier_is_live COMMAND python3
+        "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_water_cvar_probe_test.py"
+        --binary "$<TARGET_FILE:hello_orkige>"
+        --out "${CMAKE_CURRENT_BINARY_DIR}/water_cvar_tier_is_live"
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(water_cvar_tier_is_live PROPERTIES
+        LABELS integration SKIP_RETURN_CODE 77 TIMEOUT 300)
+
     # water_swell_looks_right: the GEOMETRIC swell probe. Runs the demo_water
     # swell leg two ways (a high-contrast backdrop wall behind the far water edge,
     # the scene orbit + ripple scroll FROZEN so the swell is the only thing that

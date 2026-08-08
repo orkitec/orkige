@@ -776,6 +776,13 @@ namespace Orkige
 		//! (RenderSystem::setWaterTime) - a name with no registered water
 		//! material is a silent no-op (the dormancy rule)
 		static void setWaterMaterialTime(String const & name, float seconds);
+		//! @brief re-derive the water LOOK for every live surface after a
+		//! `water.*` cvar moved (RenderSystem::refreshWaterLook). Recomputes the
+		//! cached per-material mirror knobs from the descriptions the surfaces
+		//! were built from and re-pushes the look lanes at once, and re-derives
+		//! the sky-mirror sample LOD from the bound chain's mip count. No water
+		//! in the scene = a no-op.
+		static void refreshWaterLook();
 		//! @brief can this backend do screen-space water refraction: the RTSS
 		//! generator is active AND the target shading language is desktop GLSL
 		//! (GL3Plus - the grab-pass water program is authored for it; a

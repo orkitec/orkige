@@ -11,6 +11,7 @@
 
 #include "engine_graphic/Engine.h"
 #include "engine_render/RenderSystem.h"
+#include "engine_render/RenderWaterTuning.h"
 #include "engine_render/RenderSystemSelection.h"
 #include "engine_render/RenderWorld.h"
 #include "engine_render/RenderCamera.h"
@@ -563,6 +564,19 @@ namespace Orkige
 			"enable opt-in planar water reflection (a mirror of the scene in the "
 			"water surface); off renders water with its non-mirror sky-reflection "
 			"fallback and never stands up the reflection subsystem");
+
+		// the LIVE water/mirror look tier (`water.mirrorSpecular` and its
+		// siblings): the look constants both flavors bake into a water surface,
+		// registered as session-scoped cvars so the look is dialled in at
+		// runtime - the console, MSG_SET_CVAR, MCP set_cvar or an ORKIGE_CVAR_*
+		// boot seed - instead of recompiled. Their names, defaults, clamp bands
+		// and the onChange hook that re-applies each change through the ONE
+		// facade road RenderSystem::refreshWaterLook() live in a single place, so
+		// the two backends cannot drift from each other or from the docs (@see
+		// engine_render/RenderWaterTuning.h). Every default reproduces the value
+		// its flavor has always baked in, so a run that sets nothing renders
+		// byte-identical pixels.
+		WaterTuning::registerCVars();
 
 		// the ENV->CVAR boot seed: apply any ORKIGE_CVAR_* environment variable
 		// now that every engine/render cvar is registered, so a seed reaches its

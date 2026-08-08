@@ -21,6 +21,7 @@
 #include "engine_render_classic/ImageLightingSrs.h"
 #include "engine_render_classic/MetalRoughLightingSrs.h"
 #include "engine_render/RenderMaterialCache.h"	// the create-or-update memo
+#include "engine_render/RenderWaterTuning.h"	// the live water.* look tier
 #include "engine_graphic/Engine.h"
 #include <core_util/SkyEnvMap.h>
 #include "engine_filesystem/PakMount.h"
@@ -148,6 +149,12 @@ namespace Orkige
 			float waveHeight = 0.0f;
 		};
 		std::unordered_map<String, ReflectKnobs> gReflectiveWaterKnobs;
+		//! the DESCRIPTION each reflective water material was built from, kept
+		//! beside its knobs so the look can be re-derived without the component
+		//! that authored it: the `water.*` cvar tier changes the LAWS the knobs
+		//! come out of, and RenderBackend::refreshWaterLook recomputes every
+		//! entry from these. Same key + lifetime as gReflectiveWaterKnobs.
+		std::unordered_map<String, RenderWaterDesc> gReflectiveWaterDescs;
 		//! the ONE shared reflection render target: a window-sized colour texture
 		//! re-rendered each frame from the MIRROR camera (the main camera reflected
 		//! across the water plane, geometry below the plane custom-near-clipped, the
@@ -267,15 +274,29 @@ namespace Orkige
 		//! horizon gradient and shimmered where next holds still. Derived
 		//! from the bound chain's mip count (capture or rebind site).
 		float gWaterSkyLod = 0.0f;
-		//! the shared water datablock roughness both flavors' env terms read
-		const float kWaterMirrorRoughness = 0.16f;
-		//! the PLANAR-MIRROR water datablock's specular (kS) - the one
-		//! angle-independent dial on the mirror's weight in the env specular
-		//! term envColourS x specular x fresnelS. The value is the sibling
-		//! backend's kMirrorSpecular, probe-calibrated there against this
-		//! flavor's mirror strength; both flavors now evaluate the SAME term,
-		//! so the constant is shared rather than mirrored by two calibrations.
-		const float kWaterMirrorSpecular = 0.43f;
+		//! the mip count gWaterSkyLod was derived from (0 = no live chain), so
+		//! the LOD can be re-derived when the roughness knob moves without
+		//! waiting for the next capture / rebind (@see refreshWaterLook)
+		unsigned int gWaterSkyLodMips = 0u;
+		//! @brief the sky-mirror sample LOD for a chain of @p mips levels - the
+		//! sibling backend's exact env LOD formula (envSpecularRoughness:
+		//! perceptualRoughness x mipCount x (2 - perceptualRoughness)) at the
+		//! shared water roughness, so both flavors reflect the SAME prefiltered
+		//! blur of the sky. The roughness is the live `water.mirrorRoughness`
+		//! knob (@see engine_render/RenderWaterTuning.h); its default is the
+		//! value this backend has always used.
+		float waterSkyLodForMips(unsigned int mips)
+		{
+			const float roughness = WaterTuning::mirrorRoughness();
+			return roughness * static_cast<float>(mips) * (2.0f - roughness);
+		}
+		// The PLANAR-MIRROR water surface's specular (kS) - the one
+		// angle-independent dial on the mirror's weight in the env specular
+		// term envColourS x specular x fresnelS - is the live
+		// WaterTuning::mirrorSpecular() knob, whose default is the value the
+		// sibling backend's reflection probe calibrated. Both flavors evaluate
+		// the SAME term off the SAME knob, so it is shared rather than mirrored
+		// by two calibrations (@see engine_render/RenderWaterTuning.h).
 		//! which (skybox, tier) pair the chain was built from (skip rebuilds)
 		String gIblChainSource;
 		IblPreset::Quality gIblChainQuality = IblPreset::IQ_OFF;
@@ -1924,13 +1945,17 @@ namespace Orkige
 		//! F0 IS authored x opacity), so an opened-up water surface softens its
 		//! fresnel edge identically on both flavors. The same formula the sibling
 		//! datablock's planar branch applies (@see createOrUpdateWaterDatablock).
+		//! The live `water.mirrorFresnelScale` knob rides on TOP of the law as a
+		//! multiplier (default 1 = the law unchanged), the same way the sibling
+		//! applies it - @see engine_render/RenderWaterTuning.h.
 		float waterMirrorFresnelF0(RenderWaterDesc const & desc)
 		{
 			const float baseF0 = std::clamp(
 				0.02f * std::max(desc.fresnelPower, 0.0f), 0.0f, 0.2f);
 			const float strength = std::clamp(desc.reflectionStrength, 0.0f, 1.0f);
 			return std::clamp(baseF0 + strength * 0.12f, 0.02f, 0.3f) *
-				std::clamp(desc.opacity, 0.0f, 1.0f);
+				std::clamp(desc.opacity, 0.0f, 1.0f) *
+				WaterTuning::mirrorFresnelScale();
 		}
 		//! @brief the mirror surface's body ALBEDO scale - the exact number the
 		//! sibling datablock carries in its diffuse and emissive.
@@ -1943,14 +1968,16 @@ namespace Orkige
 		//! DISPLAY-space one while the albedo it scales is LINEAR, and the display
 		//! transfer is sqrt. Both flavors read this same number - the sibling bakes
 		//! it into setDiffuse/setEmissive, this backend pushes it as
-		//! reflectParams.z - so the two bodies are the same surface.
+		//! reflectParams.z - so the two bodies are the same surface. The live
+		//! `water.mirrorAlbedoScale` knob rides on TOP as a multiplier (default
+		//! 1 = the law unchanged), the same way the sibling applies it.
 		float waterMirrorAlbedoScale(RenderWaterDesc const & desc)
 		{
 			const float strength = std::clamp(desc.reflectionStrength, 0.0f, 1.0f);
 			const float f0 = waterMirrorFresnelF0(desc);
 			const float meanFresnel = f0 + (1.0f - f0) / 21.0f;
 			const float bodyWeight = (1.0f - strength * 0.35f) * (1.0f - meanFresnel);
-			return bodyWeight * bodyWeight;
+			return bodyWeight * bodyWeight * WaterTuning::mirrorAlbedoScale();
 		}
 		//! push the water body colour + refraction/reflection knobs onto a
 		//! reflective water material's fragment program (create + per-scroll update)
@@ -1975,7 +2002,7 @@ namespace Orkige
 			// describe ONE surface (@see createOrUpdateWaterDatablock).
 			params->setNamedConstant("reflectParams", Ogre::Vector4(
 				waterMirrorFresnelF0(desc), refractComposed ? 1.0f : 0.0f,
-				waterMirrorAlbedoScale(desc), kWaterMirrorSpecular));
+				waterMirrorAlbedoScale(desc), WaterTuning::mirrorSpecular()));
 			// an initial ambient fill so a not-yet-ticked surface (editor /
 			// frame 0) lights its body; the per-frame setWaterMaterialTime
 			// re-pushes the live hemisphere as the atmosphere animates
@@ -2346,6 +2373,7 @@ namespace Orkige
 		destroyReflectionTexture();
 		gReflectiveWaterMaterials.clear();
 		gReflectiveWaterKnobs.clear();
+		gReflectiveWaterDescs.clear();
 		gReflectionListener.mHidden.clear();
 		gWaterHideEntities.clear();
 	}
@@ -2501,6 +2529,7 @@ namespace Orkige
 				knobs.refractStrength = std::max(desc.refractionStrength, 0.0f);
 				knobs.refractEnabled = composeRefract ? 1.0f : 0.0f;
 				gReflectiveWaterKnobs[name] = knobs;
+				gReflectiveWaterDescs[name] = desc;
 				// track the grab lifecycle when composing (keeps the grab alive as
 				// long as a composed reflective surface needs it)
 				if(composeRefract)
@@ -2529,6 +2558,7 @@ namespace Orkige
 		// the mirror target hides only the surfaces that actually reflect
 		gReflectiveWaterMaterials.erase(name);
 		gReflectiveWaterKnobs.erase(name);
+		gReflectiveWaterDescs.erase(name);
 		// --- opt-in screen-space refraction (grab-pass) ---
 		// When refraction is requested AND supported, the surface renders through
 		// a programmable pass that samples the scene GRABBED behind it (water
@@ -2774,7 +2804,7 @@ namespace Orkige
 			// body ALBEDO scale + the shared mirror kS
 			params->setNamedConstant("reflectParams", Ogre::Vector4(
 				k.reflectStrength, k.refractEnabled, k.albedoScale,
-				kWaterMirrorSpecular));
+				WaterTuning::mirrorSpecular()));
 			// the geometric swell (VS): amplitude + the shared world-space
 			// frequency, phased by the shared clock rate (the same formula
 			// and constants the next flavor's water vertex stage runs)
@@ -2868,11 +2898,10 @@ namespace Orkige
 						// cube samples base (the branch is gated off anyway)
 						if(!gWaterSkyLive)
 						{
+							gWaterSkyLodMips = skyLive
+								? texture->getNumMipmaps() + 1u : 0u;
 							gWaterSkyLod = skyLive
-								? kWaterMirrorRoughness *
-									static_cast<float>(
-										texture->getNumMipmaps() + 1u) *
-									(2.0f - kWaterMirrorRoughness)
+								? waterSkyLodForMips(gWaterSkyLodMips)
 								: 0.0f;
 						}
 					}
@@ -2903,6 +2932,54 @@ namespace Orkige
 		pass->getTextureUnitState(0)->setTextureScroll(travel, travel * 0.6f);
 	}
 	//---------------------------------------------------------
+	void RenderBackend::refreshWaterLook()
+	{
+		// the sky-mirror sample LOD follows the roughness knob at once, without
+		// waiting for the next environment capture or skybox rebind
+		if(gWaterSkyLodMips != 0u)
+		{
+			gWaterSkyLod = waterSkyLodForMips(gWaterSkyLodMips);
+		}
+		// every live MIRROR surface re-derives the two program numbers the
+		// per-frame push sends (@see setWaterMaterialTime) from the description
+		// it was built from, and gets them pushed straight away - a paused
+		// surface (an editor with no material clock) must show the new look too
+		for(std::unordered_map<String, RenderWaterDesc>::const_iterator it =
+			gReflectiveWaterDescs.begin();
+			it != gReflectiveWaterDescs.end(); ++it)
+		{
+			std::unordered_map<String, ReflectKnobs>::iterator knobs =
+				gReflectiveWaterKnobs.find(it->first);
+			if(knobs == gReflectiveWaterKnobs.end())
+			{
+				continue;	// knobs and descriptions retire together
+			}
+			knobs->second.reflectStrength = waterMirrorFresnelF0(it->second);
+			knobs->second.albedoScale = waterMirrorAlbedoScale(it->second);
+			Ogre::MaterialPtr material = Ogre::MaterialManager::getSingleton()
+				.getByName(it->first,
+					Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+			if(!material)
+			{
+				continue;	// material dropped (project switch) - harmless
+			}
+			Ogre::Pass* pass = material->getTechnique(0)->getPass(0);
+			Ogre::GpuProgramParametersSharedPtr params =
+				pass->getFragmentProgramParameters();
+			if(!params)
+			{
+				continue;	// no program on this pass - nothing to re-push
+			}
+			params->setIgnoreMissingParams(true);
+			// only the LOOK lanes: the scroll rides refractParams and belongs to
+			// the animation clock, so re-pushing it here would jump the ripple
+			params->setNamedConstant("reflectParams", Ogre::Vector4(
+				knobs->second.reflectStrength, knobs->second.refractEnabled,
+				knobs->second.albedoScale, WaterTuning::mirrorSpecular()));
+			pushWaterAmbient(params);	// carries the sky-mirror LOD lane
+		}
+	}
+	//---------------------------------------------------------
 	bool RenderSystem::createMaterial(String const & name,
 		RenderMaterialDesc const & desc)
 	{
@@ -2924,6 +3001,11 @@ namespace Orkige
 	void RenderSystem::setWaterTime(String const & name, float seconds)
 	{
 		RenderBackend::setWaterMaterialTime(name, seconds);
+	}
+	//---------------------------------------------------------
+	void RenderSystem::refreshWaterLook()
+	{
+		RenderBackend::refreshWaterLook();
 	}
 	//---------------------------------------------------------
 	RenderWorld* RenderSystem::getWorld() const
@@ -3180,6 +3262,7 @@ namespace Orkige
 			gWaterSkyLive = false;
 			gWaterSkyScale = 1.0f;
 			gWaterSkyLod = 0.0f;
+			gWaterSkyLodMips = 0u;
 			Ogre::TextureManager & textureManager =
 				Ogre::TextureManager::getSingleton();
 			if(Ogre::TexturePtr stale = textureManager.getByName(
@@ -3237,8 +3320,8 @@ namespace Orkige
 				gWaterSkyScale = scale;
 				// mips counts the base level, matching the sibling backend's
 				// TextureGpu::getNumMipmaps the env LOD formula consumes
-				gWaterSkyLod = kWaterMirrorRoughness *
-					static_cast<float>(mips) * (2.0f - kWaterMirrorRoughness);
+				gWaterSkyLodMips = mips;
+				gWaterSkyLod = waterSkyLodForMips(mips);
 				gWaterSkyLive = true;
 			}
 			catch(Ogre::Exception const & e)

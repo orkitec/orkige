@@ -318,6 +318,11 @@ namespace Orkige
 		RenderBackend::setWaterDatablockTime(name, seconds);
 	}
 	//---------------------------------------------------------
+	void RenderSystem::refreshWaterLook()
+	{
+		RenderBackend::refreshWaterLook();
+	}
+	//---------------------------------------------------------
 	RenderWorld* RenderSystem::getWorld() const
 	{
 		return this->mImpl->world;

@@ -90,6 +90,10 @@ set(ORKIGE_ENGINE_SOURCES
     # (the decision is one place, so neither flavor can drift from it)
     engine_render/RenderMaterialCache.h
     engine_render/RenderMaterialCache.cpp
+    # the live `water.*` look tier: one vocabulary of names/defaults/clamps
+    # both flavors read, so the mirror look cannot drift between them
+    engine_render/RenderWaterTuning.h
+    engine_render/RenderWaterTuning.cpp
     # the `.omesh` asset road: flavor-NEUTRAL by construction, so it lives with
     # the facade instead of being copied into both backend directories
     engine_render/MeshAssetLoad.cpp

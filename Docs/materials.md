@@ -633,6 +633,50 @@ legitimately differs between the flavors).
   stronger mask — vertex waves breaking the silhouette — stays registered
   absent / out of v1 scope.
 
+### Live look knobs — the `water.*` cvars
+
+A handful of numbers in the reflective water look are neither authored per
+surface (`RenderWaterDesc` holds those) nor derivable from the scene: the
+mirror's weight, the laws that turn the authored strength/opacity into a
+fresnel F0 and a body albedo, and — on the next flavor — the sample sharpness
+and ripple distortion compiled into its planar-reflection shader piece. They
+are LOOK constants, and they are live cvars, so the look is dialled in at
+runtime through any cvar door (the console, `MSG_SET_CVAR`, MCP `set_cvar`, an
+`ORKIGE_CVAR_*` boot seed) instead of recompiled. The names, defaults, clamp
+bands and the re-apply hook live in one place, `engine_render/
+RenderWaterTuning.h`, so the two flavors read the same vocabulary.
+
+| cvar | default | band | drives | flavor |
+|------|---------|------|--------|--------|
+| `water.mirrorSpecular` | 0.43 | 0…1 | the mirror's weight (kS) in the environment specular term — the one angle-independent dial on how much mirror the surface carries | both |
+| `water.mirrorFresnelScale` | 1.0 | 0…8 | a MULTIPLIER on the flavor's own mirror fresnel-F0 law (the grazing-edge reflectivity) | both |
+| `water.mirrorAlbedoScale` | 1.0 | 0…8 | a MULTIPLIER on the flavor's own mirror body-albedo law (how bright the water body reads under the mirror) | both |
+| `water.mirrorLod` | 0.05 | 0…1 | the mirror sample's sharpness as a mip fraction, baked into the planar-reflection piece | next |
+| `water.mirrorDistort` | 0.09 | 0…1 | how far the ripple slope shifts the mirror sample, in planar UV units per unit of slope, baked into the same piece | next |
+| `water.mirrorRoughness` | 0.16 | 0…1 | the roughness the sky-mirror sample's environment LOD is derived from — the LOD lane only; the water program's own roughness literal is compiled in and does not follow this knob | classic |
+
+Rules that hold here:
+
+- **The DEFAULTS are the constants the flavors bake in**, and the two
+  multipliers default to the identity, so a run that sets nothing renders
+  byte-identical pixels. The pixel-parity and self-drift gates rest on that;
+  `water_cvar_tier_is_live` measures it directly.
+- **Absolutes and multipliers are distinct on purpose.** A multiplier rides on
+  TOP of each flavor's law rather than replacing it, so the two keep describing
+  ONE surface — a single number set here cannot pull the flavors apart.
+- **Session-scoped.** None of them is `CVAR_PERSIST`: a dialled-in experiment
+  never writes itself into a project manifest.
+- **A value outside its band is CLAMPED on read, not refused** — the cvar keeps
+  the string that was set, and the look stays in a range it can render.
+- **One refresh road.** Each knob's `onChange` calls
+  `RenderSystem::refreshWaterLook()`, which re-applies the look to every water
+  surface already in the scene: classic recomputes the cached per-material
+  mirror knobs its per-frame push sends, next rebuilds each water datablock
+  from the description it was built from (the mirror's LOD and distortion are
+  compiled INTO its shader piece, so nothing short of a rebuild moves them).
+  Both flavors keep what they need inside the backend — nothing reaches back
+  into the components that authored the surfaces.
+
 ### Generator + tests
 
 `Util/make_water_mesh.py` bakes the shared engine water assets with the Python

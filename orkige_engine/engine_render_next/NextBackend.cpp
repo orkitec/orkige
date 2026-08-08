@@ -17,6 +17,7 @@
 #include "engine_render_next/NextBackend.h"
 #include "engine_render/RenderSystemSelection.h"	// the deviceless boot word
 #include "engine_render/RenderMaterialCache.h"	// the create-or-update memo
+#include "engine_render/RenderWaterTuning.h"	// the live water.* look tier
 #include <core_util/PngWriter.h>	// THE image encode: the engine owns it
 #include <core_util/SkyEnvMap.h>
 #include <core_util/PlanarReflectionGuard.h>
@@ -98,6 +99,7 @@
 #include <filesystem>
 #include <set>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #if defined(ORKIGE_IPHONE)
@@ -167,6 +169,14 @@ namespace Orkige
 			float waveSpeed;	//!< scroll speed (UV units per second)
 		};
 		std::unordered_map<String, WaterAnim> gWaterAnims;
+		//! the DESCRIPTION each water datablock was built from. The `water.*`
+		//! cvar tier changes look constants this backend BAKES IN at build time
+		//! (the mirror's kS, its fresnel/albedo laws and the sample LOD + ripple
+		//! distortion compiled into the planar-reflection piece), so a live change
+		//! is served by rebuilding from here - the backend keeps what it needs and
+		//! never reaches back into the component that authored the surface (@see
+		//! RenderBackend::refreshWaterLook). Same key + lifetime as gWaterAnims.
+		std::unordered_map<String, RenderWaterDesc> gWaterDescs;
 		//! how many lights currently ask to cast shadows (RenderLight::
 		//! setCastShadows tally); shadows render only while > 0
 		int gShadowCasterCount = 0;
@@ -1031,6 +1041,7 @@ namespace Orkige
 		gUiDatablocks.clear();		// owned by their Hlms, die with the root
 		gRetiredRTTDatablocks.clear();	// their datablocks died with the root
 		gWaterAnims.clear();		// datablocks die with the root
+		gWaterDescs.clear();		// datablocks die with the root
 		gRefractiveWaterMaterials.clear();	// datablocks die with the root
 		gWireframe = false;
 		gShadowCasterCount = 0;		// late light handles no-op (system() gate)
@@ -4413,7 +4424,11 @@ namespace Orkige
 			// two in lockstep (@see RenderSystemClassic
 			// createOrUpdateWaterMaterial / applyReflectionParams).
 			const float strength = std::clamp(desc.reflectionStrength, 0.0f, 1.0f);
-			const float mirrorF0 = std::clamp(f0 + strength * 0.12f, 0.02f, 0.3f);
+			// the live `water.mirrorFresnelScale` knob rides on TOP of the law
+			// as a multiplier (default 1 = the law unchanged), exactly as the
+			// sibling applies it (@see engine_render/RenderWaterTuning.h)
+			const float mirrorF0 = std::clamp(f0 + strength * 0.12f, 0.02f, 0.3f) *
+				WaterTuning::mirrorFresnelScale();
 			datablock->setFresnel(
 				Ogre::Vector3(mirrorF0, mirrorF0, mirrorF0), false);
 			// the MIRROR's weight. Both flavors evaluate the same env specular
@@ -4428,13 +4443,14 @@ namespace Orkige
 			// because the probe's per-sample hue clamp gates how much of the
 			// band counts) - and it is a LOOK choice about how much mirror the
 			// surface carries, not a per-flavor calibration: the sibling backend
-			// reads the same constant (@see RenderSystemClassic
-			// kWaterMirrorSpecular) into the same term. Constant-kS keeps the
+			// reads the SAME knob into the same term. Constant-kS keeps the
 			// authored strength/opacity response in lockstep: both mirror
 			// weights stay proportional to the same premultiplied F.
-			const float kMirrorSpecular = 0.43f;
+			// Both flavors read it from the ONE live `water.mirrorSpecular`
+			// knob, whose default IS that calibrated value.
+			const float mirrorSpecular = WaterTuning::mirrorSpecular();
 			datablock->setSpecular(Ogre::Vector3(
-				kMirrorSpecular, kMirrorSpecular, kMirrorSpecular));
+				mirrorSpecular, mirrorSpecular, mirrorSpecular));
 			// the body under the mirror. Real water is reflection-forward - its
 			// own albedo is tiny and the authored deep colour is an artistic
 			// stand-in - so a stronger mirror dims the body (1 - 0.35 x
@@ -4468,7 +4484,10 @@ namespace Orkige
 				effectiveF0 + (1.0f - effectiveF0) / 21.0f;
 			const float bodyWeight =
 				(1.0f - strength * 0.35f) * (1.0f - meanFresnel);
-			const float albedoScale = bodyWeight * bodyWeight;
+			// the live `water.mirrorAlbedoScale` knob rides on TOP as a
+			// multiplier (default 1 = the law unchanged), as the sibling does
+			const float albedoScale =
+				bodyWeight * bodyWeight * WaterTuning::mirrorAlbedoScale();
 			datablock->setDiffuse(Ogre::Vector3(desc.deepColour.r * albedoScale,
 				desc.deepColour.g * albedoScale,
 				desc.deepColour.b * albedoScale));
@@ -4477,7 +4496,8 @@ namespace Orkige
 				desc.shallowColour.g * scatter * albedoScale,
 				desc.shallowColour.b * scatter * albedoScale));
 			// roughness stays the shared water value (@see the base branch
-			// above and classic's kWaterMirrorRoughness): it shapes the SUN
+			// above; the sibling's `water.mirrorRoughness` knob is the same
+			// number in its sky-mirror LOD lane): it shapes the SUN
 			// GLINT, and narrowing it for the mirror's sake collapses the
 			// GGX lobe below the pixel grid - the streak vanishes while the
 			// lake vignette (no mirror) keeps it. The mirror's own sharpness
@@ -4518,11 +4538,14 @@ namespace Orkige
 			// the mirror-UV distortion scale (planar UV units per unit of
 			// horizontal ripple slope): calibrated so the mirrored scene wobbles
 			// at the classic water program's measured strength without smearing
-			// the reflection into noise. BAKED into the piece filename (like the
-			// swell amplitude) so filename-equality implies content-equality -
-			// Hlms throws when one custom-piece filename re-registers with
-			// different content, and a fixed constant makes every registration
-			// collision-free by construction.
+			// the reflection into noise; the default of the live
+			// `water.mirrorDistort` knob (@see engine_render/RenderWaterTuning.h).
+			// BAKED into the piece filename (like the swell amplitude) so
+			// filename-equality implies content-equality - Hlms throws when one
+			// custom-piece filename re-registers with different content, and
+			// every value that reaches the source reaches the filename too
+			// (@see mirrorTag below), so a dialled-in look is collision-free
+			// by construction.
 			// ORKIGE_WATER_FLAT_MIRROR: a diagnostic seam (like ORKIGE_DUMP_MIRROR)
 			// that zeroes the ripple perturbation so the planar mirror renders FLAT
 			// - the water_mirror_wobble gate captures the same frame with and
@@ -4530,14 +4553,17 @@ namespace Orkige
 			// wall-clock-pacing-INDEPENDENT existence check (both frames sit at the
 			// identical wave phase, so only the perturbation differs; a mirror that
 			// stopped rippling makes the two frames identical).
-			float distort = 0.09f;
+			float distort = WaterTuning::mirrorDistort();
 			if(std::getenv("ORKIGE_WATER_FLAT_MIRROR")) distort = 0.0f;
 			// the mirror's sample sharpness, as a PERCEPTUAL-roughness-
 			// equivalent mip fraction, baked into the piece instead of read
 			// from pixelData.perceptualRoughness: the datablock's roughness
 			// belongs to the sun glint's GGX lobe, and the mirror keeps its
-			// own near-mip-0 look independently of it
-			const float mirrorLod = 0.05f;
+			// own near-mip-0 look independently of it. Live through
+			// `water.mirrorLod`, and baked into the piece FILENAME below with
+			// the same precision the source carries, so the Hlms
+			// filename-implies-content invariant holds at any value.
+			const float mirrorLod = WaterTuning::mirrorLod();
 			char mirrorSource[4096];
 			std::snprintf(mirrorSource, sizeof(mirrorSource),
 				"@property( use_planar_reflections )\n"
@@ -4833,9 +4859,33 @@ namespace Orkige
 			}
 		}
 
-		// remember the wave tunables for the per-frame scroll
+		// remember the wave tunables for the per-frame scroll, and the whole
+		// description so a `water.*` change can rebuild this surface
 		gWaterAnims[name] = WaterAnim{ desc.waveScale, desc.waveSpeed };
+		gWaterDescs[name] = desc;
 		return datablock;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::refreshWaterLook()
+	{
+		if(!gRenderSystem || gWaterDescs.empty())
+		{
+			return;	// no render system / no water in the scene - a no-op
+		}
+		// rebuild through the ONE builder rather than re-applying a subset of
+		// its decisions: every look constant a `water.*` knob moves is baked in
+		// there (the datablock's specular/fresnel/diffuse AND the planar piece
+		// the mirror's LOD + distortion are compiled into), and a second
+		// application path here would be a second copy of those laws.
+		// The build writes gWaterDescs back, so iterate a SNAPSHOT.
+		std::vector<std::pair<String, RenderWaterDesc> > live(
+			gWaterDescs.begin(), gWaterDescs.end());
+		for(std::size_t index = 0; index < live.size(); ++index)
+		{
+			bool complete = true;
+			RenderBackend::createOrUpdateWaterDatablock(
+				live[index].first, live[index].second, complete);
+		}
 	}
 	//---------------------------------------------------------
 	void RenderBackend::setWaterDatablockTime(String const & name, float seconds)

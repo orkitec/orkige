@@ -233,6 +233,19 @@ namespace Orkige
 		//! surface static - the established dormancy rule).
 		//! map: classic=TextureUnitState::setTextureScroll on the shimmer unit | next=HlmsPbsDatablock::setDetailMapOffsetScale on the two detail normals
 		void setWaterTime(String const & name, float seconds);
+		//! @brief re-apply the water LOOK to every live water surface - the ONE
+		//! refresh road behind the `water.*` cvar tier
+		//! (engine_render/RenderWaterTuning.h).
+		//! @remarks The look constants a water surface bakes in at build time
+		//! (the mirror's weight, its fresnel/albedo laws, the sample LOD and
+		//! ripple distortion) are read from cvars, so a `set_cvar` has to reach
+		//! the surfaces that already exist. Each backend keeps the descriptions
+		//! it built from and rebuilds off them - no caller passes anything, and
+		//! nothing above the facade needs to know which surfaces are live. Safe
+		//! and cheap with no water in the scene (a no-op) and idempotent, so a
+		//! burst of sets costs one rebuild each.
+		//! map: classic=recompute the cached per-material mirror knobs the per-frame push sends | next=re-run the water datablock build from the retained description
+		void refreshWaterLook();
 
 		//--- the scene ---
 		//! the one world (multiple worlds stay a facade-compatible extension)
