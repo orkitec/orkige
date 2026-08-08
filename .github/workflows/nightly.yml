@@ -866,7 +866,9 @@ jobs:
       VCPKG_ROOT_DIR: /home/runner/Development/vcpkg
       VCPKG_DEFAULT_BINARY_CACHE: /home/runner/vcpkg-binary-cache
       CCACHE_DIR: /home/runner/.ccache
-      PRESET: android-debug
+      # the -ci preset takes the NDK from the job environment; the plain
+      # android-debug preset pins the macOS SDK path and would override it
+      PRESET: android-debug-ci
       CC: clang
       CXX: clang++
     steps:

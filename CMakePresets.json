@@ -249,6 +249,14 @@
       }
     },
     {
+      "name": "android-debug-ci",
+      "displayName": "Android Debug (arm64-v8a, Ogre-Next/Vulkan - CI only, NDK from the environment)",
+      "inherits": "android-debug",
+      "environment": {
+        "ANDROID_NDK_HOME": "$penv{ANDROID_NDK_HOME}"
+      }
+    },
+    {
       "name": "android-emulator-debug-ci",
       "displayName": "Android Emulator Debug (x86_64, Ogre-Next/Vulkan - CI only)",
       "inherits": "android-debug",
@@ -494,6 +502,10 @@
     {
       "name": "android-debug",
       "configurePreset": "android-debug"
+    },
+    {
+      "name": "android-debug-ci",
+      "configurePreset": "android-debug-ci"
     },
     {
       "name": "android-emulator-debug-ci",
