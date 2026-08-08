@@ -81,10 +81,6 @@ concurrency:
 env:
   VCPKG_COMMIT: 42e4e33e1505c9f47b58c21e0f557c1571b751ee
   VCPKG_ROOT_DIR: /home/runner/Development/vcpkg
-  # every distfile is looked up in our ci-assets release BY SHA512 before any
-  # upstream server is asked - a slow or runner-hostile upstream (lua.org)
-  # can then never fail a build; vcpkg verifies the hash either way
-  X_VCPKG_ASSET_SOURCES: "x-azurl,https://github.com/orkitec/orkige/releases/download/ci-assets,,read"
   VCPKG_DEFAULT_BINARY_CACHE: /home/runner/vcpkg-binary-cache
   CCACHE_DIR: /home/runner/.ccache
   CCACHE_MAXSIZE: 1G
@@ -150,21 +146,6 @@ jobs:
           git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
           "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
-          mkdir -p "$VCPKG_ROOT_DIR/downloads"
-          # distfile seed: lua.org refuses the hosted runners' address space,
-          # so the exact pinned tarball rides our ci-assets release; vcpkg
-          # verifies the SHA512 itself and re-downloads on any mismatch. The
-          # seed reports loudly either way - a silent seed failure reads as
-          # an upstream outage and costs a round of cold-build archaeology.
-          if curl -fSL --retry 5 --retry-all-errors \
-              "https://github.com/orkitec/orkige/releases/download/ci-assets/lua-5.5.0.tar.gz" \
-              -o "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz"; then
-            ls -la "$VCPKG_ROOT_DIR/downloads/"
-            sha512sum "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz" 2>/dev/null \
-              || shasum -a 512 "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz"
-          else
-            echo "::warning::the lua distfile seed failed to download from the ci-assets release"
-          fi
 
       - name: Restore vcpkg binary cache
         # shares the linux-next cache key so a nightly run restores the same
@@ -287,21 +268,6 @@ jobs:
           git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
           "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
-          mkdir -p "$VCPKG_ROOT_DIR/downloads"
-          # distfile seed: lua.org refuses the hosted runners' address space,
-          # so the exact pinned tarball rides our ci-assets release; vcpkg
-          # verifies the SHA512 itself and re-downloads on any mismatch. The
-          # seed reports loudly either way - a silent seed failure reads as
-          # an upstream outage and costs a round of cold-build archaeology.
-          if curl -fSL --retry 5 --retry-all-errors \
-              "https://github.com/orkitec/orkige/releases/download/ci-assets/lua-5.5.0.tar.gz" \
-              -o "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz"; then
-            ls -la "$VCPKG_ROOT_DIR/downloads/"
-            sha512sum "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz" 2>/dev/null \
-              || shasum -a 512 "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz"
-          else
-            echo "::warning::the lua distfile seed failed to download from the ci-assets release"
-          fi
 
       - name: Restore vcpkg binary cache
         # shares the linux-next cache key (read-only here: no save step) so a
@@ -421,21 +387,6 @@ jobs:
           # vcpkg requires the binary-cache dir to pre-exist; actions/cache only
           # creates it on a hit, so make it here for the cold-cache first run
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
-          mkdir -p "$VCPKG_ROOT_DIR/downloads"
-          # distfile seed: lua.org refuses the hosted runners' address space,
-          # so the exact pinned tarball rides our ci-assets release; vcpkg
-          # verifies the SHA512 itself and re-downloads on any mismatch. The
-          # seed reports loudly either way - a silent seed failure reads as
-          # an upstream outage and costs a round of cold-build archaeology.
-          if curl -fSL --retry 5 --retry-all-errors \
-              "https://github.com/orkitec/orkige/releases/download/ci-assets/lua-5.5.0.tar.gz" \
-              -o "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz"; then
-            ls -la "$VCPKG_ROOT_DIR/downloads/"
-            sha512sum "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz" 2>/dev/null \
-              || shasum -a 512 "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz"
-          else
-            echo "::warning::the lua distfile seed failed to download from the ci-assets release"
-          fi
 
       - name: Restore vcpkg binary cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service; migrating is a deliberate cold-rebuild exercise
@@ -745,21 +696,6 @@ jobs:
           git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
           "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
-          mkdir -p "$VCPKG_ROOT_DIR/downloads"
-          # distfile seed: lua.org refuses the hosted runners' address space,
-          # so the exact pinned tarball rides our ci-assets release; vcpkg
-          # verifies the SHA512 itself and re-downloads on any mismatch. The
-          # seed reports loudly either way - a silent seed failure reads as
-          # an upstream outage and costs a round of cold-build archaeology.
-          if curl -fSL --retry 5 --retry-all-errors \
-              "https://github.com/orkitec/orkige/releases/download/ci-assets/lua-5.5.0.tar.gz" \
-              -o "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz"; then
-            ls -la "$VCPKG_ROOT_DIR/downloads/"
-            sha512sum "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz" 2>/dev/null \
-              || shasum -a 512 "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz"
-          else
-            echo "::warning::the lua distfile seed failed to download from the ci-assets release"
-          fi
 
       - name: Restore vcpkg binary cache
         # the ci.yml web job's key (read-only here: no save step) - including
@@ -856,21 +792,6 @@ jobs:
           git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
           "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
-          mkdir -p "$VCPKG_ROOT_DIR/downloads"
-          # distfile seed: lua.org refuses the hosted runners' address space,
-          # so the exact pinned tarball rides our ci-assets release; vcpkg
-          # verifies the SHA512 itself and re-downloads on any mismatch. The
-          # seed reports loudly either way - a silent seed failure reads as
-          # an upstream outage and costs a round of cold-build archaeology.
-          if curl -fSL --retry 5 --retry-all-errors \
-              "https://github.com/orkitec/orkige/releases/download/ci-assets/lua-5.5.0.tar.gz" \
-              -o "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz"; then
-            ls -la "$VCPKG_ROOT_DIR/downloads/"
-            sha512sum "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz" 2>/dev/null \
-              || shasum -a 512 "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz"
-          else
-            echo "::warning::the lua distfile seed failed to download from the ci-assets release"
-          fi
 
       - name: Restore vcpkg binary cache
         # the ci.yml ios-simulator job's key (read-only here: no save step) - a
@@ -993,21 +914,6 @@ jobs:
           git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
           "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
-          mkdir -p "$VCPKG_ROOT_DIR/downloads"
-          # distfile seed: lua.org refuses the hosted runners' address space,
-          # so the exact pinned tarball rides our ci-assets release; vcpkg
-          # verifies the SHA512 itself and re-downloads on any mismatch. The
-          # seed reports loudly either way - a silent seed failure reads as
-          # an upstream outage and costs a round of cold-build archaeology.
-          if curl -fSL --retry 5 --retry-all-errors \
-              "https://github.com/orkitec/orkige/releases/download/ci-assets/lua-5.5.0.tar.gz" \
-              -o "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz"; then
-            ls -la "$VCPKG_ROOT_DIR/downloads/"
-            sha512sum "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz" 2>/dev/null \
-              || shasum -a 512 "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz"
-          else
-            echo "::warning::the lua distfile seed failed to download from the ci-assets release"
-          fi
 
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
@@ -1140,21 +1046,6 @@ jobs:
           git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
           "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
-          mkdir -p "$VCPKG_ROOT_DIR/downloads"
-          # distfile seed: lua.org refuses the hosted runners' address space,
-          # so the exact pinned tarball rides our ci-assets release; vcpkg
-          # verifies the SHA512 itself and re-downloads on any mismatch. The
-          # seed reports loudly either way - a silent seed failure reads as
-          # an upstream outage and costs a round of cold-build archaeology.
-          if curl -fSL --retry 5 --retry-all-errors \
-              "https://github.com/orkitec/orkige/releases/download/ci-assets/lua-5.5.0.tar.gz" \
-              -o "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz"; then
-            ls -la "$VCPKG_ROOT_DIR/downloads/"
-            sha512sum "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz" 2>/dev/null \
-              || shasum -a 512 "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz"
-          else
-            echo "::warning::the lua distfile seed failed to download from the ci-assets release"
-          fi
 
       - name: Restore vcpkg binary cache
         # shares the macos-next key: a triplet's cache holds both the Debug and
@@ -1532,21 +1423,6 @@ jobs:
           git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
           "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
-          mkdir -p "$VCPKG_ROOT_DIR/downloads"
-          # distfile seed: lua.org refuses the hosted runners' address space,
-          # so the exact pinned tarball rides our ci-assets release; vcpkg
-          # verifies the SHA512 itself and re-downloads on any mismatch. The
-          # seed reports loudly either way - a silent seed failure reads as
-          # an upstream outage and costs a round of cold-build archaeology.
-          if curl -fSL --retry 5 --retry-all-errors \
-              "https://github.com/orkitec/orkige/releases/download/ci-assets/lua-5.5.0.tar.gz" \
-              -o "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz"; then
-            ls -la "$VCPKG_ROOT_DIR/downloads/"
-            sha512sum "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz" 2>/dev/null \
-              || shasum -a 512 "$VCPKG_ROOT_DIR/downloads/lua-5.5.0.tar.gz"
-          else
-            echo "::warning::the lua distfile seed failed to download from the ci-assets release"
-          fi
 
       - name: Restore vcpkg binary cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0 - the v6 line reads a different cache service (task: deliberate migration)
