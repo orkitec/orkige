@@ -353,6 +353,10 @@ void updateExportJob(ExportJob& job, EditorConsole& console)
 	{
 		console.addLine(ConsoleLevel::Error, "[export] " + job.platform +
 			" export FAILED: " + job.error);
+		// the Console is UI-only; a captured automated-run log sees SDL_Log,
+		// and a failure whose reason it cannot see is undiagnosable there
+		SDL_Log("[export] %s export FAILED: %s", job.platform.c_str(),
+			job.error.c_str());
 		return;
 	}
 	console.addLine(ConsoleLevel::Info, "[export] " + job.platform +

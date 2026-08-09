@@ -267,12 +267,15 @@ jobs:
 
       # the wasm player lands where the editor's compile-time define points
       # (build/web-release/tools/player/ under the SOURCE tree), which is what
-      # makes the Browser play target selectable
+      # makes the Browser play target selectable; the artifact also carries
+      # the web tree's classic shader media (vcpkg_installed/.../share/ogre/
+      # Media), which the play flow's web export stages into the pak - the
+      # artifact root is build/web-release, so both land in place
       - name: Place the wasm player where the editor expects it
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with:
           name: wasm-player
-          path: build/web-release/tools/player
+          path: build/web-release
 
       - name: Browser session tests (may not skip - Chrome is on this image)
         env:
@@ -280,6 +283,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s build/web-release/tools/player/orkige_player.js
+          test -d build/web-release/vcpkg_installed
           LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1)
           echo "using ICD: $LVP_ICD"
           export VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD"
@@ -1467,7 +1471,10 @@ jobs:
 
       # The wasm player pair the EDITOR serves for Play in Browser - the
       # editor-browser-session job places these at the path the editor's
-      # ORKIGE_EDITOR_WEB_PLAYER_JS define expects
+      # ORKIGE_EDITOR_WEB_PLAYER_JS define expects. The web EXPORT that play
+      # flow runs also stages the classic shader media out of the web tree's
+      # vcpkg (ExportWeb resolves it via ogreMediaDirectory), so that small
+      # directory rides along - without it the export refuses the tree
       - name: Upload the wasm player for the editor session job
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
@@ -1475,6 +1482,7 @@ jobs:
           path: |
             build/web-release/tools/player/orkige_player.js
             build/web-release/tools/player/orkige_player.wasm
+            build/web-release/vcpkg_installed/*/share/ogre/Media/**
           if-no-files-found: error
 
       - name: Upload test diagnostics
