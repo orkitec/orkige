@@ -2034,8 +2034,9 @@ def android_sdl_java_dir(build_dir):
     glue comes out of the build tree's own buildtrees (or, once those are
     cleaned, the verified source archive in the downloads cache) - the same two
     places the exporter's own assembly looks against a build tree."""
-    vcpkg = os.environ.get("VCPKG_ROOT") or os.path.expanduser(
-        "~/Development/vcpkg")
+    vcpkg = (os.environ.get("VCPKG_ROOT") or
+             os.environ.get("VCPKG_ROOT_DIR") or
+             os.path.expanduser("~/Development/vcpkg"))
     relative = os.path.join("android-project", "app", "src", "main", "java",
                             "org", "libsdl", "app")
     for source in sorted(glob.glob(os.path.join(vcpkg, "buildtrees", "sdl3",

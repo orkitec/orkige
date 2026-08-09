@@ -956,6 +956,30 @@ jobs:
           path: /home/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
 
+      # The payload carries SDL3's Java glue, taken from the SDL source vcpkg
+      # built the native library from. A warm binary-cache run never touches
+      # that source: nothing is compiled, so neither buildtrees nor the
+      # downloads cache hold it, and the composition would refuse. Fetch the
+      # exact release the pinned port names and verify it against the port's
+      # own SHA512, under the archive name vcpkg itself would have used.
+      - name: Ensure the SDL source archive is in the downloads cache
+        run: |
+          set -uo pipefail
+          mkdir -p "$VCPKG_ROOT_DIR/downloads"
+          if compgen -G "$VCPKG_ROOT_DIR/downloads/libsdl-org-SDL-release-3.*.tar.gz" > /dev/null; then
+            echo "SDL source archive already in the downloads cache"
+            exit 0
+          fi
+          version=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['version'])" \
+            "$VCPKG_ROOT_DIR/ports/sdl3/vcpkg.json")
+          sha512=$(grep -oE '\b[0-9a-f]{128}\b' "$VCPKG_ROOT_DIR/ports/sdl3/portfile.cmake" | head -1)
+          archive="$VCPKG_ROOT_DIR/downloads/libsdl-org-SDL-release-${version}.tar.gz"
+          curl -fsSL --retry 3 \
+            "https://github.com/libsdl-org/SDL/archive/release-${version}.tar.gz" \
+            -o "$archive"
+          echo "${sha512}  ${archive}" | sha512sum -c - > /dev/null
+          echo "fetched SDL ${version} source (checksum matches the pinned port)"
+
       # ONE composition, by the same tool the editor reads the name back from.
       # The library is STRIPPED here, on the machine that has the NDK: a debug
       # libmain.so is hundreds of megabytes of DWARF, which is not something to
@@ -1727,6 +1751,15 @@ jobs:
           Write-Host "Using Vulkan ICD: $icd"
           "VK_DRIVER_FILES=$icd" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "VK_ICD_FILENAMES=$icd" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          # the ICD is registered in the REGISTRY as well: the runner executes
+          # elevated (runneradmin), and the Vulkan loader deliberately IGNORES
+          # VK_DRIVER_FILES/VK_ICD_FILENAMES in elevated processes - the same
+          # lesson the ci.yml windows-next suite learned; registry-registered
+          # drivers are honored regardless of elevation
+          New-Item -Path "HKLM:\SOFTWARE\Khronos\Vulkan\Drivers" -Force | Out-Null
+          New-ItemProperty -Path "HKLM:\SOFTWARE\Khronos\Vulkan\Drivers" `
+            -Name $icd -Value 0 -PropertyType DWord -Force | Out-Null
+          Write-Host "registered Vulkan ICD in HKLM: $icd"
           # the ICD's lvp DLL depends on the MSYS2 UCRT runtime DLLs; the test
           # processes load it OUTSIDE any MSYS2 shell, so those DLLs must be
           # resolvable on the plain Windows PATH or instance creation fails
@@ -1738,6 +1771,10 @@ jobs:
       # is no sandbox-exec - so the run stages outside the repository and audits
       # the pack instead; the strict form runs on macOS.
       - name: Verify the SDK pack (MUST pass - gates the release)
+        env:
+          # a repeat of the no-driver failure should name the loader's actual
+          # ICD candidates in the log instead of one opaque error code
+          VK_LOADER_DEBUG: error,warn
         run: |
           ctest --test-dir "build/${env:PRESET}" -R "^sdk_pack" `
             --output-on-failure --no-tests=error
@@ -2017,7 +2054,10 @@ jobs:
             retention="${1:-}"
             kept_field() {                # "" unless that row keeps its last build
               [ -n "${retention}" ] && [ -f "${retention}" ] || return 0
-              grep "^retain_${1}_${2}=" "${retention}" | head -1 | cut -d= -f2-
+              # no match is the NORMAL case (a platform that built keeps
+              # nothing), and the runner's default shell carries -e: an
+              # unguarded grep miss would kill the whole composition silently
+              grep "^retain_${1}_${2}=" "${retention}" | head -1 | cut -d= -f2- || true
             }
             echo "Editor version \`${VERSION}\` - built ${BUILD_DATE} (UTC) from"
             echo "\`${SHORT_SHA}\`, and only because the full test matrix on that"
