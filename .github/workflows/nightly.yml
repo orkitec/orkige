@@ -2315,12 +2315,30 @@ jobs:
               notes=notes-dated.md
               payload=("${fresh[@]}")
             fi
-            gh release delete "${tag}" --yes --cleanup-tag 2> /dev/null || true
-            gh release create "${tag}" \
-              --prerelease \
-              --target "${SHA}" \
-              --title "Orkige ${VERSION}" \
-              --notes-file "${notes}" \
-              "${payload[@]}"
+            # the create is retried because the API has refused it
+            # transiently, AFTER the delete - a single attempt strands the
+            # rolling release deleted with nothing in its place until the
+            # next publish. The delete sits inside the loop so every attempt
+            # starts from the same clean state (a half-created release from
+            # a failed upload would otherwise block the retry by existing).
+            created=""
+            for attempt in 1 2 3; do
+              gh release delete "${tag}" --yes --cleanup-tag 2> /dev/null || true
+              if gh release create "${tag}" \
+                --prerelease \
+                --target "${SHA}" \
+                --title "Orkige ${VERSION}" \
+                --notes-file "${notes}" \
+                "${payload[@]}"; then
+                created=1
+                break
+              fi
+              echo "::warning::release create for ${tag} failed (attempt ${attempt} of 3)"
+              sleep 30
+            done
+            if [ -z "${created}" ]; then
+              echo "release create for ${tag} did not succeed in 3 attempts" >&2
+              exit 1
+            fi
             echo "published https://github.com/${GITHUB_REPOSITORY}/releases/tag/${tag}" >> "$GITHUB_STEP_SUMMARY"
           done
