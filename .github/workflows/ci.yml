@@ -283,7 +283,11 @@ jobs:
         run: |
           set -euo pipefail
           test -s build/web-release/tools/player/orkige_player.js
-          test -d build/web-release/vcpkg_installed
+          ls -d build/web-release/vcpkg_installed/*/share/ogre/Media
+          # the artifact is a partial tree (player pair + shader media); the
+          # exporter recognises a triplet directory by its include/, so the
+          # downloaded skeleton needs that marker
+          for d in build/web-release/vcpkg_installed/*/; do mkdir -p "${d}include"; done
           LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1)
           echo "using ICD: $LVP_ICD"
           export VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD"
