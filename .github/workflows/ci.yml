@@ -124,7 +124,7 @@ jobs:
   # created, nothing is merged, so main can carry no state that was not tested.
   # Branch protection is NOT bypassed - admins are bound by it, and this push
   # is accepted for the same reason a manual one would be, because the commit
-  # already holds the sixteen required verdicts.
+  # already holds the seventeen required verdicts.
   #
   # CONSEQUENCE WORTH KNOWING: moving main deploys the public site, since the
   # site job triggers on a main push. Green therefore means published.
@@ -149,6 +149,7 @@ jobs:
       - ios-simulator-classic
       - windows-next
       - windows-classic
+      - editor-browser-session
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -192,12 +193,9 @@ jobs:
   # exports, serves and debug-links a REAL headless Chrome running the wasm
   # player - the only place the chunked browser frame capture road is proven
   # against a real page. Needs both halves no other job has together: the
-  # web job's wasm player and a host editor build.
-  #
-  # DELIBERATELY NOT GATING YET: absent from fast-forward-main's `needs:`
-  # and from the required contexts until its stability on hosted runners is
-  # proven - a trial job must not be able to hold main. Promote it into both
-  # in one change once it has a green streak.
+  # web job's wasm player and a host editor build. Gating: it sits in
+  # fast-forward-main's `needs:` and in the required contexts, so main
+  # cannot move onto a commit where a browser play session does not work.
   editor-browser-session:
     name: Editor browser session (host editor + wasm player)
     needs: web
@@ -239,8 +237,8 @@ jobs:
           "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
           mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
 
-      # restore-only, riding linux-next's own keys: a trial job neither
-      # earns nor pollutes the caches the gating jobs depend on
+      # restore-only, riding linux-next's own keys: this job reads the
+      # caches other jobs earn and never writes them
       - name: Restore vcpkg binary cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0 - the v6 cache service, warmed deliberately
         with:

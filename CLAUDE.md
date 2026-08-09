@@ -1371,7 +1371,7 @@ what rule it carries, which doc has the depth.
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) carries **nineteen jobs** — sixteen
+GitHub Actions (`.github/workflows/ci.yml`) carries **twenty jobs** — seventeen
 verdicts, mostly parallel, so a failure names itself and every verdict lands as
 early as its own build allows, plus `branch-base`, `fast-forward-main` and the
 `site` deploy.
@@ -1381,7 +1381,7 @@ Small changes are committed straight to `development` — no PR ceremony — and
 burst of pushes collapses into ONE matrix run, because the concurrency group
 cancels a superseded run of the same branch. When `development` is green, the
 **`fast-forward-main`** job moves `main` onto that exact commit by itself: it
-waits on every gating job — the sixteen verdicts plus `branch-base`, seventeen
+waits on every gating job — the seventeen verdicts plus `branch-base`, eighteen
 `needs:` entries — so one red verdict leaves `main` where it was, and nobody
 has to remember. **A new gating job belongs in that `needs:`
 list in the same change** — otherwise `main` moves without waiting for it. **Green therefore means PUBLISHED** — moving
@@ -1390,7 +1390,7 @@ list in the same change** — otherwise `main` moves without waiting for it. **G
 That last word is load-bearing. Check runs belong to a **SHA**, not to a
 branch, so a fast-forwarded commit arrives on `main` already carrying its own
 green verdicts and satisfies protection with no second run — which is why the
-fourteen verdict jobs skip a push to `main`. **Merging** into `main` instead
+fifteen verdict jobs skip a push to `main`. **Merging** into `main` instead
 would create a NEW commit that nothing has verified, and would cost a second
 full matrix to prove it. So: fast-forward only, and never push to `main`
 directly, or it stops being an ancestor of `development` and the model breaks.
@@ -1424,7 +1424,7 @@ invalidate every other open run.
 **Admins ARE bound by the checks** (`enforce_admins`), so an unverified commit
 to `main` is refused by GitHub rather than by discipline — verified by pushing
 one: `GH006: Protected branch update failed ... required status checks are
-expected`. The two parity gates are among the sixteen required contexts,
+expected`. The two parity gates are among the seventeen required contexts,
 which closes the one road around `fast-forward-main`: a pull request merged
 straight into `main` is judged on its HEAD, so without it a branch could land
 green on everything except parity. A fast-forward onto a green commit passes the same gate, because
@@ -1442,7 +1442,7 @@ free, but the ACCOUNT's concurrent-job ceiling is what actually paces things
 (macOS is separately capped at 5). This is exactly what the `development` model
 exists to fix: several branches in flight starve each other, and the one that
 unblocks the rest waits longest. Batch onto `development` instead, and cancel
-runs for branches that must be rebased anyway. The sixteen verdicts, plus the
+runs for branches that must be rebased anyway. The seventeen verdicts, plus the
 `site` deploy (`branch-base` and `fast-forward-main` are the two above):
 
 | Job | What it gates |
@@ -1454,6 +1454,7 @@ runs for branches that must be rebased anyway. The sixteen verdicts, plus the
 | `host-exporter` | builds `orkige_export` on Linux and uploads it — the browser export needs a host exporter the wasm tree cannot build |
 | `web` (needs `host-exporter`) | cross-builds the wasm player + core test module (pinned emsdk) and runs the full web suite: core units under node, export structure + pixel-boot through headless Chrome, may-not-skip guard on the boot test |
 | `web-parity` (needs `web` + both Linux jobs) | the BROWSER look gate: downloads the wasm player's captures and the desktop classic player's captures of the same two vignettes and compares them region-wise. Same flavor on both sides, so a divergence names the WebGL/GLES3 tier alone. It also REPORTS (never gates) the release pair, desktop next against the browser, and uploads both pairs as side-by-side pictures. No build, no GPU |
+| `editor-browser-session` (needs `web`) | Play in Browser as a live editor session: the host Linux editor exports and serves a project, a headless Chrome boots the web job's wasm player in it, and the debug link + browser frame capture are proven against a real page — the one job holding both halves |
 | `site` (needs `web`) | the per-push site deploy (see the help-portal bullet) |
 | `android-emulator-next` / `-classic` | build the x86_64 emulator player FIRST (the fail-fast the job exists for), then the host editor, then the adb Play test |
 | `macos-next` / `macos-classic` | next: the complete non-device desktop suite on Apple hardware; classic: build + headless units only (its desktop/Vulkan suites run locally — `ctest --preset desktop-classic` / `all`) |
